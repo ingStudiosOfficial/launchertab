@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+    <meta charset="UTF-8">
+    <title>New Tab</title>
+    <link rel="icon" type="image/x-icon" href="../assets/favicon.ico" id="page-favicon">
+    <link rel="stylesheet" href="newtab.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=add,check,delete,edit">
+</head>
+<body>
+    <main>
+        <div class="tabbrief-container" id="dynamic-content-container"></div>
+        <div id="shortcuts-area">
+            <div id="actions-container">
+                <div class="action-btn-container"><div class="action-button" id="edit-shortcut"><span class="material-symbols-outlined action-icon">edit</span><h3>Edit</h3></div></div>
+                <div class="action-btn-container"><div class="action-button" id="delete-shortcut"><span class="material-symbols-outlined action-icon">delete</span><h3>Remove</h3></div></div>
+            </div>
+            <div id="shortcut-gallery"></div>
+        </div>
+        <div id="create-shortcut" class="button-style">
+            <span class="material-symbols-outlined">
+                add
+            </span>
+        </div>
+        <div id="add-shortcut-container"></div>
+        <div id="add-widget-container"></div>
+    </main>
+    <script src="newtab.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+    "manifest_version": 3,
+    "name": "LauncherTab",
+    "version": "0.1.0",
+    "description": "Copy anything, infinitely.",
+    "author": "(ing) Studios Web Labs",
+    "chrome_url_overrides": {
+        "newtab": "newtab/newtab.html"
+    },
+    "background": {
+      "service_worker": "background.js"
+    },
+    "permissions": [
+        "tabs",
+        "storage",
+        "favicon"
+    ],
+    "web_accessible_resources": [
+        {
+        "resources": ["_favicon/*"],
+        "matches": ["<all_urls>"]
+        }
+    ],
+    "icons": {
+      "48": "assets/logo.png"
+    }
+}

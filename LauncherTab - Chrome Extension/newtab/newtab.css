@@ -1,0 +1,704 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Bitcount+Prop+Single:wght@100..900&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap');
+
+/* ===== CSS VARIABLES ===== */
+:root {
+    /* Define your blueish theme colors */
+    --primary-color: #2196F3; /* A standard Material Blue 500 */
+    --primary-light: #64B5F6; /* Material Blue 300 */
+    --primary-dark: #1976D2; /* Material Blue 700 */
+    --primary-darkest: #0D47A1; /* Material Blue 900 */
+    --secondary-color: #03A9F4; /* A complementary light blue */
+    --text-primary: #212121; /* Dark grey for primary text */
+    --text-secondary: #757575; /* Medium grey for secondary text */
+    --background-color: #E3F2FD; /* A very light blue for background */
+    --surface-color: #FFFFFF; /* White for surfaces like cards */
+    --accent-color: #FFC107; /* A contrasting accent color (amber) */
+}
+
+/* ===== BASE STYLES ===== */
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    font-family: 'Google Sans';
+    background-color: var(--background-color);
+    color: var(--text-primary);
+    transition: background-color ease 0.4s;
+}
+
+/* ===== HEADER STYLES ===== */
+header {
+    background-color: var(--primary-color);
+    color: var(--surface-color);
+    padding-left: 10px;
+    display: flex;
+    align-items: center;
+    z-index: 100;
+    transition: background-color ease 0.4s;
+}
+
+.header-element {
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+/* ===== MATERIAL ICONS ===== */
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-variation-settings:
+        'FILL' 0,
+        'wght' 400,
+        'GRAD' 0,
+        'opsz' 24;
+    color: #ffffff;
+}
+
+/* ===== MAIN LAYOUT ===== */
+main {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 5fr;
+}
+
+/* ===== SHARED BUTTON STYLES ===== */
+.button-style {
+    background-color: var(--primary-color);
+    border: none;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    transition: border-radius 0.2s ease-in-out, background-color 0.4s ease;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+}
+
+.button-style:hover {
+    background-color: var(--primary-dark);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.button-style:active {
+    background-color: var(--primary-darkest);
+    border-radius: 10px;
+}
+
+/* ===== SHARED RIPPLE EFFECT ===== */
+.ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    transform: scale(0);
+    animation: ripple-animation 0.6s linear;
+    pointer-events: none;
+}
+
+@keyframes ripple-animation {
+    to {
+        transform: scale(4);
+        opacity: 0;
+    }
+}
+
+/* ===== SHARED INTERACTIVE ELEMENT STYLES ===== */
+.interactive-element {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s;
+}
+
+.interactive-element:hover {
+    transform: scale(1.2);
+}
+
+.interactive-element.returning {
+    animation: fadeInScale 0.5s ease forwards;
+}
+
+@keyframes fadeInScale {
+    0% {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* ===== SHARED CIRCULAR ELEMENT STYLES ===== */
+.circular-element {
+    width: 25%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+}
+
+.circular-icon {
+    width: 80%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* ===== SHARED CONTAINER STYLES ===== */
+.element-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+.element-title {
+    text-align: center;
+}
+
+/* ===== SHORTCUTS AREA ===== */
+#shortcuts-area {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: auto;
+    grid-template-rows: 0fr 1fr;
+    transition: grid-template-rows 0.3s ease-out;
+    overflow: hidden;
+}
+
+#shortcuts-area.dragging {
+    grid-template-rows: 1fr 4fr;
+}
+
+/* ===== ACTIONS CONTAINER ===== */
+#actions-container {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    background-color: var(--background-color);
+    box-sizing: border-box;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+}
+
+#shortcuts-area.dragging #actions-container {
+    opacity: 1;
+}
+
+#actions-container h2 {
+    margin: 0;
+}
+
+.action-btn-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-button {
+    width: 50%;
+    height: 50%;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+    background-color: transparent;
+    border-radius: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 5px;
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+.action-icon {
+    color: var(--primary-color);
+    transition: color 0.2s ease-in-out;
+}
+
+.action-button.dragover {
+    color: #ffffff;
+    background-color: var(--primary-color);
+}
+
+/* ===== GALLERY STYLES ===== */
+#shortcut-gallery {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(5, 1fr);
+    padding-top: 10px;
+    border-radius: 25px;
+    border-color: transparent;
+    transition: border-color 0.2s ease;
+}
+
+/* ===== SHORTCUT STYLES ===== */
+.shortcut-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+.shortcut-circle {
+    cursor: pointer;
+    width: 25%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s;
+}
+
+.shortcut-circle:hover {
+    transform: scale(1.2);
+}
+
+.shortcut-circle.returning {
+    animation: fadeInScale 0.5s ease forwards;
+}
+
+.shortcut-icon {
+    width: 80%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.shortcut-title {
+    text-align: center;
+}
+
+/* ===== WIDGET STYLES ===== */
+.widget-container {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s, box-shadow 0.3s ease;
+    border-radius: 25px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.widget-container:hover {
+    transform: translateY(2px);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0);
+}
+
+.widget-container.returning {
+    animation: fadeInScale 0.5s ease forwards;
+}
+
+/* Time Widget Specific */
+.time-container {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s, box-shadow 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--secondary-color);
+    border-radius: 25px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    flex-shrink: 0;
+}
+
+.time-container:hover, .time-container-preview:hover {
+    transform: translateY(2px);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0);
+}
+
+.time-container.returning {
+    animation: fadeInScale 0.5s ease forwards;
+}
+
+#current-time-text, #current-time-text-preview {
+    color: #ffffff;
+    font-size: 45px;
+    font-weight: normal;
+    font-family: 'Google Sans';
+    text-align: center;
+}
+
+.time-container-preview {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s, box-shadow 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--secondary-color);
+    border-radius: 25px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    flex-shrink: 0;
+    width: 100%;
+}
+
+/* ===== TAB BRIEF CONTAINER ===== */
+.tabbrief-container {
+    padding: 10px;
+    background-color: var(--primary-light);
+    margin: 10px;
+    border-radius: 25px;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    flex-shrink: 0;
+}
+
+/* ===== CREATE SHORTCUT BUTTON ===== */
+#create-shortcut {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+}
+
+/* ===== MODAL CONTAINERS ===== */
+#add-shortcut-container,
+#add-widget-container {
+    position: fixed;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ===== SHARED PANEL STYLES ===== */
+.add-shortcut-panel,
+.add-widget-panel {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background-color: var(--primary-light);
+    border-radius: 25px;
+    padding: 20px;
+    opacity: 0;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.2s ease-in-out;
+    width: fit-content;
+    min-width: 300px;
+}
+
+.add-shortcut-panel.fade-in,
+.add-widget-panel.fade-in {
+    opacity: 1;
+}
+
+.add-shortcut-panel.fade-out,
+.add-widget-panel.fade-out {
+    opacity: 0;
+}
+
+/* ===== SHARED FORM STYLES ===== */
+#add-shortcut-form,
+#add-widget-form,
+#edit-widget-form {
+    display: flex;
+    gap: 5px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ===== SHARED INPUT STYLES ===== */
+.shortcut-input,
+.widget-input {
+    background-color: var(--background-color);
+    color: var(--text-primary);
+    border-radius: 16px;
+    border: 1px solid var(--text-secondary);
+    padding: 12px 16px;
+    font-family: 'Google Sans';
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+    box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shortcut-input:focus,
+.widget-input:focus {
+    background-color: var(--surface-color);
+    border-color: var(--primary-color);
+    border-width: 2px;
+    outline: none;
+    box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.15),
+                0px 0px 0px 3px rgba(33, 150, 243, 0.2);
+}
+
+.shortcut-input:hover,
+.widget-input:hover {
+    background-color: var(--surface-color);
+    box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.shortcut-input::placeholder,
+.widget-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 1;
+}
+
+.shortcut-input:invalid,
+.widget-input:invalid {
+    border-color: var(--accent-color);
+}
+
+/* ===== SHARED PREVIEW STYLES ===== */
+.shortcut-container-preview,
+.widget-container-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 80%;
+    height: 80%;
+    margin: 10px;
+}
+
+.shortcut-circle-preview {
+    cursor: pointer;
+    width: 25%;
+    min-width: 25px;
+    max-width: 80px;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+}
+
+#icon-preview {
+    width: 80%;
+    height: 80%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+/* ===== MATERIAL 3 CHECKBOX STYLES ===== */
+.widget-input[type="checkbox"],
+.shortcut-input[type="checkbox"] {
+    /* Hide the default checkbox */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    
+    /* Base styling */
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--text-secondary);
+    border-radius: 4px;
+    background-color: transparent;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+    margin: 8px;
+    
+    /* Remove default input styling overrides */
+    padding: 0;
+    box-shadow: none;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.widget-input[type="checkbox"]:hover,
+.shortcut-input[type="checkbox"]:hover {
+    border-color: var(--primary-color);
+    background-color: rgba(33, 150, 243, 0.04);
+    box-shadow: none;
+}
+
+.widget-input[type="checkbox"]:focus,
+.shortcut-input[type="checkbox"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    border-width: 2px;
+    box-shadow: 0 0 0 8px rgba(33, 150, 243, 0.12);
+}
+
+.widget-input[type="checkbox"]:checked,
+.shortcut-input[type="checkbox"]:checked {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    box-shadow: none;
+}
+
+.widget-input[type="checkbox"]:checked:hover,
+.shortcut-input[type="checkbox"]:checked:hover {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+.widget-input[type="checkbox"]:checked:focus,
+.shortcut-input[type="checkbox"]:checked:focus {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 8px rgba(33, 150, 243, 0.12);
+}
+
+/* Checkmark */
+.widget-input[type="checkbox"]:checked::before,
+.shortcut-input[type="checkbox"]:checked::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: -1px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 1;
+}
+
+.widget-input[type="checkbox"]::before,
+.shortcut-input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: -1px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+/* Disabled state */
+.widget-input[type="checkbox"]:disabled,
+.shortcut-input[type="checkbox"]:disabled {
+    border-color: rgba(117, 117, 117, 0.38);
+    background-color: transparent;
+    cursor: not-allowed;
+}
+
+.widget-input[type="checkbox"]:disabled:checked,
+.shortcut-input[type="checkbox"]:disabled:checked {
+    background-color: rgba(117, 117, 117, 0.38);
+    border-color: rgba(117, 117, 117, 0.38);
+}
+
+.widget-input[type="checkbox"]:disabled:checked::before,
+.shortcut-input[type="checkbox"]:disabled:checked::before {
+    border-color: rgba(255, 255, 255, 0.38);
+}
+
+/* Indeterminate state (optional) */
+.widget-input[type="checkbox"]:indeterminate,
+.shortcut-input[type="checkbox"]:indeterminate {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.widget-input[type="checkbox"]:indeterminate::before,
+.shortcut-input[type="checkbox"]:indeterminate::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 6px;
+    width: 10px;
+    height: 2px;
+    background-color: white;
+    border: none;
+    transform: none;
+    opacity: 1;
+}
+
+/* Ripple effect for checkbox */
+.widget-input[type="checkbox"]::after,
+.shortcut-input[type="checkbox"]::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: transparent;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.widget-input[type="checkbox"]:active::after,
+.shortcut-input[type="checkbox"]:active::after {
+    background-color: rgba(33, 150, 243, 0.12);
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.widget-input[type="checkbox"]:checked:active::after,
+.shortcut-input[type="checkbox"]:checked:active::after {
+    background-color: rgba(33, 150, 243, 0.16);
+}
+
+/* Label styling for better accessibility */
+label[for] {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Google Sans';
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    margin: 4px 0;
+}
+
+/* Checkbox container for better spacing */
+.label-checkbox-group {
+    display: flex;
+    align-items: center;
+    justify-content: middle;
+    gap: 5px;
+}
