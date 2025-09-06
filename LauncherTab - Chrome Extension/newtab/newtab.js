@@ -1,10 +1,35 @@
-let storageMode = chrome.storage.local;
+// Import all global variables
+import { storageMode } from "../global/globalVariables.js";
+
+// Import quotes from quotes/quotes.js
+import { quotes } from './quotes/quotes.js';
+console.log('Test quote:', quotes[0]);
+
+// Import alll the widgets
+import { Widget } from './widgets/Widget.js';
+import { TimeWidget } from './widgets/TimeWidget.js';
+import { QuoteWidget } from './widgets/QuoteWidget.js';
+
+// Import widget types
+import { WIDGET_TYPES } from "./registry/WIDGET_TYPES.js";
+import { widgetsTypesArray } from "./registry/widgetsTypesArray.js";
+
+// Import widget instances
+import { widgetInstances } from "./registry/widgetInstances.js";
+
+// Widget functions
+const widgetFunctions = {
+    'DigitalClock': (container) => createTimeWidget(container),
+    'Quote': (container) => createQuoteWidget(container)
+};
+
 let shortcutEventListeners = [];
 let currentShortcutPanel = null;
+let rearrangeTimeout = null;
+let draggedShortcutData = null;
+let isRearranging = false;
+let rearrangeTarget = null;
 let currentWidgetPanel = null;
-let twelvehclock = true;
-let widgetInstances = new Map();
-let isWidgetDragging = false;
 
 function cleanupEventListeners() {
     shortcutEventListeners.forEach(({ element, event, handler }) => {
@@ -13,6 +38,8 @@ function cleanupEventListeners() {
         }
     });
     shortcutEventListeners = [];
+    resetRearrangementState();
+    clearRearrangementTimeout();
 }
 
 function addTrackedEventListener(element, event, handler) {
@@ -68,7 +95,7 @@ function buttonRippleEffect() {
     });
 
     // Add ripple effect for widgets
-    document.querySelectorAll('.widget-container, .time-container').forEach(button => {
+    document.querySelectorAll('.widget-container, .time-container, .quote-container, .widget-carousel-image').forEach(button => {
         // Remove existing ripple listeners to avoid duplicates
         const existingRipple = button.querySelector('.ripple');
         if (existingRipple) {
@@ -151,8 +178,8 @@ async function initializeShortcuts() {
         cleanupEventListeners();
         
         // Clear widget instances when reinitializing to avoid conflicts
-        widgetInstances.forEach(widget => widget.destroy());
-        widgetInstances.clear();
+        //widgetInstances.forEach(widget => widget.destroy());
+        //widgetInstances.clear();
         
         const gallery = document.getElementById('shortcut-gallery');
         if (!gallery) {
@@ -177,6 +204,7 @@ async function initializeShortcuts() {
         if (!Array.isArray(allShortcuts)) {
             console.log('Shortcuts data is not an array:', allShortcuts);
             makeShortcutsDynamic();
+            initializeShortcutRearrangement();
             return;
         }
 
@@ -190,13 +218,14 @@ async function initializeShortcuts() {
                 shortcutContainer.classList.add('shortcut-container');
                 shortcutContainer.id = `shortcutContainer${index}`;
 
-                const newShortcut = document.createElement('div');
+                const newShortcut = document.createElement('button');
                 newShortcut.dataset.href = shortcut.href;
                 newShortcut.dataset.shortcutName = shortcut.name;
                 newShortcut.dataset.shortcutIndex = index;
                 newShortcut.id = `shortcut${index}`;
                 newShortcut.classList.add('shortcut-circle');
                 newShortcut.draggable = true;
+                newShortcut.dataset.hasCustomIcon = shortcut.hasCustomImage || false;
 
                 const shortcutIcon = document.createElement('img');
                 shortcutIcon.id = `shortcutIcon${index}`;
@@ -224,33 +253,120 @@ async function initializeShortcuts() {
             }
         });
         makeShortcutsDynamic();
+        initializeShortcutRearrangement();
     } catch (error) {
         console.error('Error initializing shortcuts:', error);
     }
 }
 
-async function deleteShortcut(shortcutName, shortcutIndex) {
-    const deleteConfirmation = confirm(`Are you sure you want to remove '${shortcutName}'?`);
-    if (!deleteConfirmation) return;
+async function loadAllWidgets(parentContainer, filterOptions = {}) {
+    if (!parentContainer) {
+        console.error('Parent container is required to load widgets');
+        return;
+    }
 
     try {
-        const data = await storageMode.get('shortcuts');
-        const shortcuts = data.shortcuts || [];
+        const widgets = await Widget.loadWidgets(filterOptions);
 
-        const indexToDelete = parseInt(shortcutIndex, 10);
-
-        if (indexToDelete > -1 && indexToDelete < shortcuts.length) {
-            shortcuts.splice(indexToDelete, 1);
-
-            console.log('Updated shortcuts list:', shortcuts);
-            await storageMode.set({'shortcuts': shortcuts});
-
-            await initializeShortcuts();
-        } else {
-            console.warn(`Attempted to delete shortcut at invalid index: ${indexToDelete}. Array length: ${shortcuts.length}`);
+        // Clear existing widgets from the container
+        while (parentContainer.firstChild) {
+            parentContainer.removeChild(parentContainer.firstChild);
         }
+
+        // Destroy existing widget instances to prevent memory leaks
+        widgetInstances.forEach(widget => {
+            try {
+                widget.destroy();
+            } catch (error) {
+                console.warn('Error destroying widget during reload:', error);
+            }
+        });
+        widgetInstances.clear();
+
+        // Create widgets from storage data using index as reference
+        let successCount = 0;
+        for (let i = 0; i < widgets.length; i++) {
+            try {
+                // Assign index-based id for DOM and reference
+                const widgetOptions = { ...widgets[i], id: `${widgets[i].id}` };
+                const widget = await createWidget(
+                    widgetOptions.type,
+                    parentContainer,
+                    widgetOptions,
+                    false // Don't auto-save when loading
+                );
+                if (widget && widget.element) {
+                    widget.element.id = `${widgets[i].id}`;
+                }
+                if (widget) {
+                    successCount++;
+                } else {
+                    console.warn(`Failed to create widget of type ${widgetOptions.type}`);
+                }
+            } catch (error) {
+                console.error(`Error creating widget at index ${i}:`, error);
+            }
+        }
+
+        console.log(`Successfully loaded ${successCount}/${widgets.length} widgets from storage.`);
     } catch (error) {
-        console.error('Error deleting shortcut:', error);
+        console.warn('Error loading widgets:', error);
+    }
+}
+
+async function createWidget(type, parentContainer, options = {}, autoSave = true) {
+    const WidgetClass = WIDGET_TYPES[type];
+    
+    if (!WidgetClass) {
+        console.error(`Unknown widget type: ${type}`);
+        return null;
+    }
+
+    console.log('Widget options:', options);
+
+    let widget;
+    try {
+        widget = new WidgetClass(options);
+    } catch (error) {
+        console.error(`Error creating ${type} widget:`, error);
+        return null;
+    }
+    
+    if (!widget || !parentContainer) {
+        console.error('Failed to create widget or missing container');
+        return null;
+    }
+    
+    // Render the widget
+    const renderedWidget = widget.render(parentContainer);
+    buttonRippleEffect();
+    
+    // Auto-save to storage if enabled
+    if (autoSave) {
+        try {
+            await widget.saveToStorage();
+            console.log(`New ${type} widget saved to storage.`);
+        } catch (error) {
+            console.error(`Failed to save new ${type} widget to storage:`, error);
+        }
+    }
+    
+    return renderedWidget;
+}
+
+async function initializeWidgets() {
+    const container = document.getElementById('dynamic-content-container');
+    if (!container) {
+        console.error('Dynamic content container not found');
+        return;
+    }
+
+    try {
+        await loadAllWidgets(container);
+        makeWidgetsDynamic();
+        console.log('Widgets initialized successfully.');
+    } catch (error) {
+        console.error('Error initializing widgets:', error);
     }
 }
 
@@ -394,7 +510,17 @@ function makeShortcutsDynamic() {
             actionButton.classList.remove('dragover');
             actionIcons[index].style.color = 'var(--primary-color)';
 
+            // Check if it's a widget or shortcut being dropped
+            const draggedWidgetId = e.dataTransfer.getData('text/widget-id');
             const draggedShortcutId = e.dataTransfer.getData('text/plain');
+            
+            if (draggedWidgetId) {
+                // This is a widget drop - let the Widget class handle it
+                console.log('Widget dropped, letting Widget class handle it.');
+                return; // Widget.setupActionButtons() will handle this
+            }
+            
+            // This is a shortcut drop - handle it with existing shortcut logic
             const draggedShortcutName = e.dataTransfer.getData('text/shortcut-name');
             const draggedShortcutIndex = e.dataTransfer.getData('text/shortcut-index');
             const draggedShortcutURL = e.dataTransfer.getData('text/shortcut-url');
@@ -444,7 +570,7 @@ function getFaviconUrl(siteUrl, size = 100) {
     return url.toString();
 }
 
-async function previewUploadedImage() {
+async function previewUploadedImage(elementToEdit = null, elementIcon = null) {
     const fileInput = document.getElementById('shortcut-icon-input');
     const shortcutURLInput = document.getElementById('shortcut-url');
     const filePreview = document.getElementById('icon-preview');
@@ -452,23 +578,41 @@ async function previewUploadedImage() {
     const titlePreview = document.getElementById('shortcut-title-preview');
     let hasCustomIcon = false;
 
+    console.log('Shortcut to edit:', elementToEdit);
+    if (elementToEdit && elementToEdit.dataset.hasCustomIcon === 'true') {
+        hasCustomIcon = true;
+    }
+
+    if (hasCustomIcon) {
+        console.log('Shortcut has custom icon.');
+    }
+
     checkIconOnload();
 
     async function checkIconOnload() {
-        const inputtedURL = shortcutURLInput.value;
-        const defaultFaviconURLAttempt = getFaviconUrl(inputtedURL);
-        try {
-            const response = await fetch(defaultFaviconURLAttempt);
-            if (response.ok) {
-                const blob = await response.blob();
-                const iconToPreview = await convertBlobToBase64(blob);
-                filePreview.src = iconToPreview;
-                filePreview.style.display = 'block';
-            } else {
-                console.warn('Error in response fetching.');
+        if (!hasCustomIcon) {
+            const inputtedURL = shortcutURLInput.value;
+            const defaultFaviconURLAttempt = getFaviconUrl(inputtedURL);
+            try {
+                const response = await fetch(defaultFaviconURLAttempt);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const iconToPreview = await convertBlobToBase64(blob);
+                    filePreview.src = iconToPreview;
+                    filePreview.style.display = 'block';
+                } else {
+                    console.warn('Error in response fetching.');
+                }
+            } catch (error) {
+                console.warn('Error in fetching favicon URL:', error);
             }
-        } catch (error) {
-            console.warn('Error in fetching favicon URL:', error);
+        } else {
+            if (elementIcon && elementIcon.src) {
+                filePreview.src = elementIcon.src;
+            } else {
+                filePreview.src = '../assets/unknown_icon.svg';
+            }
+            filePreview.style.display = 'block';
         }
         const inputtedName = shortcutNameInput.value;
         titlePreview.textContent = inputtedName;
@@ -478,7 +622,6 @@ async function previewUploadedImage() {
         if (event.target.files && event.target.files[0]) {
             const file = event.target.files[0];
             if (file.type.startsWith('image/')) {
-                hasCustomIcon = true;
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     filePreview.src = e.target.result;
@@ -520,38 +663,87 @@ async function previewUploadedImage() {
     });
 }
 
+async function deleteShortcut(shortcutName, shortcutIndex) {
+    const deleteConfirmation = confirm(`Are you sure you want to remove '${shortcutName}'?`);
+    if (!deleteConfirmation) return;
+
+    try {
+        const data = await storageMode.get('shortcuts');
+        const shortcuts = data.shortcuts || [];
+
+        const indexToDelete = parseInt(shortcutIndex, 10);
+
+        if (indexToDelete > -1 && indexToDelete < shortcuts.length) {
+            shortcuts.splice(indexToDelete, 1);
+
+            console.log('Updated shortcuts list:', shortcuts);
+            await storageMode.set({'shortcuts': shortcuts});
+
+            await initializeShortcuts();
+        } else {
+            console.warn(`Attempted to delete shortcut at invalid index: ${indexToDelete}. Array length: ${shortcuts.length}`);
+        }
+    } catch (error) {
+        console.error('Error deleting shortcut:', error);
+    }
+}
+
+
 async function editShortcut(shortcutToEditName, shortcutToEditURL, shortcutIndex, shortcutToEditID) {
     const addShortcutContainer = document.getElementById('add-shortcut-container');
     const shortcutToEditElement = document.getElementById(shortcutToEditID);
     const shortcutToEditIcon = document.getElementById(`shortcutIcon${shortcutIndex}`);
     const shortcutToEditNameElement = document.getElementById(`shortcutName${shortcutIndex}`);
 
-    if (document.querySelectorAll('.add-shortcut-panel').length === 0) {
-        const handleClickOutside = (event) => {
-            if (currentShortcutPanel &&
-                !currentShortcutPanel.contains(event.target)) {
-                currentShortcutPanel.classList.add('fade-out');
+    // Early validation and setup
+    if (document.querySelectorAll('.add-shortcut-panel').length > 0 || currentShortcutPanel) {
+        return;
+    }
 
-                currentShortcutPanel.addEventListener('transitionend', function handler(e) {
-                    if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                        if (currentShortcutPanel && currentShortcutPanel.parentNode) {
-                            currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
-                        }
-                        currentShortcutPanel = null;
-                        document.removeEventListener('click', handleClickOutside);
-                        e.currentTarget.removeEventListener('transitionend', handler);
-                    }
-                });
+    // Nested function to determine if shortcut has custom icon
+    function getCustomIconStatus() {
+        return shortcutToEditElement.dataset.hasCustomIcon === 'true';
+    }
+
+    // Nested function to handle closing the edit panel
+    function closePanel() {
+        if (!currentShortcutPanel) return;
+        
+        currentShortcutPanel.classList.add('fade-out');
+        addShortcutContainer.classList.remove('grey-out');
+
+        const handleTransitionEnd = (e) => {
+            if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
+                if (currentShortcutPanel && currentShortcutPanel.parentNode) {
+                    currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
+                }
+                currentShortcutPanel = null;
+                document.removeEventListener('click', handleClickOutside);
+                document.removeEventListener('keydown', handleEscapeKey);
+                e.currentTarget.removeEventListener('transitionend', handleTransitionEnd);
             }
         };
 
-        if (currentShortcutPanel) {
-            return;
+        currentShortcutPanel.addEventListener('transitionend', handleTransitionEnd);
+    }
+
+    // Nested function to handle clicks outside the panel
+    function handleClickOutside(event) {
+        if (currentShortcutPanel && !currentShortcutPanel.contains(event.target)) {
+            closePanel();
         }
-        const addShortcutPanel = document.createElement('div');
-        addShortcutPanel.id = "add-shortcut-panel";
-        addShortcutPanel.classList.add('add-shortcut-panel');
-        addShortcutPanel.innerHTML = `
+    }
+
+    // Nested function to handle escape key press
+    function handleEscapeKey(event) {
+        if (currentShortcutPanel && event.key === 'Escape') {
+            closePanel();
+        }
+    }
+
+    // Nested function to create the edit panel HTML
+    function createEditPanelHTML() {
+        return `
             <h2>Edit Shortcut</h2>
             <div class="shortcut-container-preview">
                 <div class="shortcut-circle-preview">
@@ -569,234 +761,205 @@ async function editShortcut(shortcutToEditName, shortcutToEditURL, shortcutIndex
                 <button type="submit" id="submit-shortcut-btn" class="button-style"><span class="material-symbols-outlined">check</span></button>
             </form>
         `;
-        addShortcutContainer.appendChild(addShortcutPanel);
-        previewUploadedImage();
-        currentShortcutPanel = addShortcutPanel;
-
-        const shortcutForm = document.getElementById('add-shortcut-form');
-        shortcutForm.addEventListener('submit', async(event) => {
-            event.preventDefault();
-            const formData = new FormData(shortcutForm);
-
-            const shortcutName = formData.get('shortcut-name');
-            const shortcutURL = formData.get('shortcut-url');
-            const fileInput = formData.get('shortcut-icon-input');
-
-            shortcutToEditElement.dataset.shortcutName = shortcutName;
-            shortcutToEditElement.dataset.href = shortcutURL;
-            shortcutToEditNameElement.textContent = shortcutName;
-
-            let newShortcut;
-            let iconToSave = null;
-
-            if (fileInput && fileInput.size > 0) {
-                try {
-                    iconToSave = await convertImageToString(fileInput);
-
-                } catch (error) {
-                    console.error("Error converting custom image to Base64:", error);
-                    iconToSave = null;
-                }
-            }
-
-            if (!iconToSave) {
-                const defaultFaviconUrlAttempt = getFaviconUrl(shortcutURL);
-                try {
-                    const response = await fetch(defaultFaviconUrlAttempt);
-                    if (response.ok) {
-                        const blob = await response.blob();
-                        iconToSave = await convertBlobToBase64(blob);
-                    } else {
-                        console.warn(`Could not fetch favicon for ${shortcutURL}. Status: ${response.status}`);
-                    }
-                } catch (error) {
-                    console.error(`Error fetching or converting default favicon for ${shortcutURL}:`, error);
-                }
-            }
-
-            if (iconToSave) {
-                shortcutToEditIcon.src = iconToSave;
-                newShortcut = {'name': shortcutName, 'href': shortcutURL, 'image': iconToSave};
-            } else {
-                shortcutToEditIcon.src = null;
-                newShortcut = {'name': shortcutName, 'href': shortcutURL};
-            }
-
-            await saveAndCloseShortcutPanel(newShortcut, shortcutIndex);
-        });
-
-        async function saveAndCloseShortcutPanel(shortcut, indexToUpdate) {
-            try {
-                const result = await storageMode.get('shortcuts');
-                const currentShortcuts = Array.isArray(result.shortcuts) ? result.shortcuts : [];
-                
-                if (indexToUpdate !== undefined && indexToUpdate > -1 && indexToUpdate < currentShortcuts.length) {
-                    currentShortcuts[indexToUpdate] = shortcut;
-                } else {
-                    currentShortcuts.push(shortcut);
-                }
-
-                await storageMode.set({'shortcuts': currentShortcuts});
-
-                if (currentShortcutPanel) {
-                    currentShortcutPanel.classList.add('fade-out');
-                    currentShortcutPanel.addEventListener('transitionend', function handler(e) {
-                        if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                            if (currentShortcutPanel && currentShortcutPanel.parentNode) {
-                                currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
-                            }
-                            currentShortcutPanel = null;
-                            document.removeEventListener('click', handleClickOutside);
-                            e.currentTarget.removeEventListener('transitionend', handler);
-                        }
-                    });
-                }
-            } catch (error) {
-                console.error("Error saving shortcut:", error);
-            }
-        }
-
-        setTimeout(() => {
-            addShortcutPanel.classList.add('fade-in');
-        }, 10);
-
-        setTimeout(() => {
-            document.addEventListener('click', handleClickOutside);
-        }, 0);
     }
-}
 
-async function createShortcut() {
-    const addButton = document.getElementById('create-shortcut');
-    const addShortcutContainer = document.getElementById('add-shortcut-container');
-
-    const handleClickOutside = (event) => {
-        if (currentShortcutPanel &&
-            !currentShortcutPanel.contains(event.target) &&
-            !addButton.contains(event.target)) {
-            currentShortcutPanel.classList.add('fade-out');
-
-            currentShortcutPanel.addEventListener('transitionend', function handler(e) {
-                if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                    if (currentShortcutPanel && currentShortcutPanel.parentNode) {
-                        currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
-                    }
-                    currentShortcutPanel = null;
-                    document.removeEventListener('click', handleClickOutside);
-                    e.currentTarget.removeEventListener('transitionend', handler);
-                }
-            });
-        }
-    };
-
-    addButton.addEventListener('click', (event) => {
-        if (currentShortcutPanel) {
-            return;
-        }
+    // Nested function to create the panel structure
+    function createPanelStructure() {
         const addShortcutPanel = document.createElement('div');
         addShortcutPanel.id = "add-shortcut-panel";
         addShortcutPanel.classList.add('add-shortcut-panel');
-        addShortcutPanel.innerHTML = `
-            <h2>Add Shortcut</h2>
-            <div class="shortcut-container-preview">
-                <div class="shortcut-circle-preview">
-                    <img src="../assets/unknown_icon.svg" id="icon-preview" class="shortcut-icon">
-                </div>
-                <p class="shortcut-title" id="shortcut-title-preview">New Shortcut</p>
-            </div>
-            <form id="add-shortcut-form">
-                <label for="shortcut-name">Shortcut Name</label>
-                <input type="text" id="shortcut-name" placeholder="New Shortcut" name="shortcut-name" class="shortcut-input" autocomplete="off" required autofocus>
-                <label for="shortcut-url">Shortcut URL</label>
-                <input type="url" id="shortcut-url" value="https://" placeholder="https://www.google.com" name="shortcut-url" class="shortcut-input" autocomplete="off" required>
-                <label for="shortcut-icon-input">Custom Icon</label>
-                <input type="file" accept=".png, .jpg, .jpeg, .svg, .webp" id="shortcut-icon-input" name="shortcut-icon-input" class="shortcut-input">
-                <button type="submit" id="submit-shortcut-btn" class="button-style"><span class="material-symbols-outlined">check</span></button>
-            </form>
-        `;
-        addShortcutContainer.appendChild(addShortcutPanel);
-        previewUploadedImage();
-        currentShortcutPanel = addShortcutPanel;
+        addShortcutPanel.innerHTML = createEditPanelHTML();
+        
+        return addShortcutPanel;
+    }
 
-        const shortcutForm = document.getElementById('add-shortcut-form');
-        shortcutForm.addEventListener('submit', async(event) => {
-            event.preventDefault();
-            const formData = new FormData(shortcutForm);
+    // Nested function to update DOM elements with new shortcut data
+    function updateShortcutDOM(shortcutName, shortcutURL, iconToSave) {
+        shortcutToEditElement.dataset.shortcutName = shortcutName;
+        shortcutToEditElement.dataset.href = shortcutURL;
+        shortcutToEditNameElement.textContent = shortcutName;
+        
+        if (iconToSave) {
+            shortcutToEditIcon.src = iconToSave;
+        } else {
+            shortcutToEditIcon.src = '../assets/unknown_icon.svg';
+        }
+    }
 
-            const shortcutName = formData.get('shortcut-name');
-            const shortcutURL = formData.get('shortcut-url');
-            const fileInput = formData.get('shortcut-icon-input');
-
-            let newShortcut;
-            let iconToSave = null;
-
-            if (fileInput && fileInput.size > 0) {
-                try {
-                    iconToSave = await convertImageToString(fileInput);
-                } catch (error) {
-                    console.error("Error converting custom image to Base64:", error);
-                    iconToSave = null;
-                }
-            }
-
-            if (!iconToSave) {
-                const defaultFaviconUrlAttempt = getFaviconUrl(shortcutURL);
-                try {
-                    const response = await fetch(defaultFaviconUrlAttempt);
-                    if (response.ok) {
-                        const blob = await response.blob();
-                        iconToSave = await convertBlobToBase64(blob);
-                    } else {
-                        console.warn(`Could not fetch favicon for ${shortcutURL}. Status: ${response.status}`);
-                    }
-                } catch (error) {
-                    console.error(`Error fetching or converting default favicon for ${shortcutURL}:`, error);
-                }
-            }
-
-            if (iconToSave) {
-                newShortcut = {'name': shortcutName, 'href': shortcutURL, 'image': iconToSave};
-            } else {
-                newShortcut = {'name': shortcutName, 'href': shortcutURL};
-            }
-
-            await saveAndCloseShortcutPanel(newShortcut);
-        });
-
-        async function saveAndCloseShortcutPanel(shortcut) {
-            try {
-                const result = await storageMode.get('shortcuts');
-                const currentShortcuts = Array.isArray(result.shortcuts) ? result.shortcuts : [];
-                currentShortcuts.push(shortcut);
-                await storageMode.set({'shortcuts': currentShortcuts});
-
-                if (currentShortcutPanel) {
-                    currentShortcutPanel.classList.add('fade-out');
-                    currentShortcutPanel.addEventListener('transitionend', function handler(e) {
-                        if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                            if (currentShortcutPanel && currentShortcutPanel.parentNode) {
-                                currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
-                            }
-                            currentShortcutPanel = null;
-                            document.removeEventListener('click', handleClickOutside);
-                            e.currentTarget.removeEventListener('transitionend', handler);
-                        }
-                    });
-                }
-                initializeShortcuts();
-            } catch (error) {
-                console.error("Error saving shortcut:", error);
-            }
+    // Nested function to process custom uploaded icon
+    async function processCustomIcon(fileInput) {
+        if (!fileInput || fileInput.size === 0) {
+            return null;
         }
 
-        setTimeout(() => {
-            addShortcutPanel.classList.add('fade-in');
-        }, 10);
+        try {
+            return await convertImageToString(fileInput);
+        } catch (error) {
+            console.error("Error converting custom image to Base64:", error);
+            return null;
+        }
+    }
 
+    // Nested function to fetch favicon
+    async function fetchFaviconIcon(shortcutURL) {
+        const defaultFaviconUrlAttempt = getFaviconUrl(shortcutURL);
+        
+        try {
+            const response = await fetch(defaultFaviconUrlAttempt);
+            if (response.ok) {
+                const blob = await response.blob();
+                return await convertBlobToBase64(blob);
+            } else {
+                console.warn(`Could not fetch favicon for ${shortcutURL}. Status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`Error fetching or converting default favicon for ${shortcutURL}:`, error);
+        }
+        
+        return null;
+    }
+
+    // Nested function to determine icon to use
+    async function determineIconToUse(fileInput, shortcutURL, hasCustomIcon) {
+        // First, try to use custom uploaded icon
+        const customIcon = await processCustomIcon(fileInput);
+        if (customIcon) {
+            return customIcon;
+        }
+
+        // If no custom icon uploaded, decide based on existing icon status
+        if (!hasCustomIcon) {
+            // Try to fetch favicon for non-custom icons
+            return await fetchFaviconIcon(shortcutURL);
+        } else {
+            // Keep existing custom icon if no new one uploaded
+            return shortcutToEditIcon.src || '../assets/unknown_icon.svg';
+        }
+    }
+
+    // Nested function to create updated shortcut object
+    function createUpdatedShortcut(shortcutName, shortcutURL, iconToSave, hasCustomIcon) {
+        const updatedShortcut = {
+            'name': shortcutName,
+            'href': shortcutURL,
+            'hasCustomImage': hasCustomIcon
+        };
+
+        if (iconToSave) {
+            updatedShortcut.image = iconToSave;
+        }
+
+        return updatedShortcut;
+    }
+
+    // Nested function to save shortcut and close panel
+    async function saveAndCloseShortcutPanel(shortcut, indexToUpdate) {
+        try {
+            // Get current shortcuts from storage
+            const result = await storageMode.get('shortcuts');
+            const currentShortcuts = Array.isArray(result.shortcuts) ? result.shortcuts : [];
+            
+            // Update the specific shortcut at the given index
+            if (indexToUpdate !== undefined && indexToUpdate > -1 && indexToUpdate < currentShortcuts.length) {
+                currentShortcuts[indexToUpdate] = shortcut;
+            } else {
+                console.warn('Invalid shortcut index for update, appending instead');
+                currentShortcuts.push(shortcut);
+            }
+
+            // Save updated shortcuts
+            await storageMode.set({'shortcuts': currentShortcuts});
+
+            // Close panel
+            closePanel();
+            
+            console.log('Shortcut updated successfully:', shortcut);
+        } catch (error) {
+            console.error("Error saving shortcut:", error);
+        }
+    }
+
+    // Nested function to handle form submission
+    async function handleFormSubmission(event) {
+        event.preventDefault();
+        
+        const shortcutForm = event.target;
+        const formData = new FormData(shortcutForm);
+
+        const shortcutName = formData.get('shortcut-name');
+        const shortcutURL = formData.get('shortcut-url');
+        const fileInput = formData.get('shortcut-icon-input');
+        const hasCustomIcon = getCustomIconStatus();
+
+        try {
+            // Determine which icon to use
+            const iconToSave = await determineIconToUse(fileInput, shortcutURL, hasCustomIcon);
+            
+            // Update DOM elements
+            updateShortcutDOM(shortcutName, shortcutURL, iconToSave);
+            
+            // Create updated shortcut object
+            const updatedShortcut = createUpdatedShortcut(shortcutName, shortcutURL, iconToSave, hasCustomIcon);
+            
+            // Save and close
+            await saveAndCloseShortcutPanel(updatedShortcut, shortcutIndex);
+        } catch (error) {
+            console.error('Error processing shortcut edit:', error);
+        }
+    }
+
+    // Nested function to initialize form listeners
+    function initializeFormListeners() {
+        const shortcutForm = document.getElementById('add-shortcut-form');
+        if (shortcutForm) {
+            shortcutForm.addEventListener('submit', handleFormSubmission);
+        }
+    }
+
+    // Nested function to show the panel with animations
+    function showPanel(panel) {
+        addShortcutContainer.appendChild(panel);
+        currentShortcutPanel = panel;
+
+        // Initialize image preview with existing shortcut data
+        previewUploadedImage(shortcutToEditElement, shortcutToEditIcon);
+        
+        // Initialize form listeners
+        initializeFormListeners();
+
+        // Trigger animations after a brief delay
+        setTimeout(() => {
+            panel.classList.add('fade-in');
+            addShortcutContainer.classList.add('grey-out');
+        }, 10);
+    }
+
+    // Nested function to initialize event listeners
+    function initializeEventListeners() {
+        // Add event listeners after a brief delay to avoid immediate triggering
         setTimeout(() => {
             document.addEventListener('click', handleClickOutside);
+            document.addEventListener('keydown', handleEscapeKey);
         }, 0);
-    });
+    }
+
+    // Main execution flow
+    function executeEditShortcut() {
+        const hasCustomIcon = getCustomIconStatus();
+        console.log('Custom icon:', hasCustomIcon);
+        
+        // Create the panel structure
+        const panel = createPanelStructure();
+        
+        // Show the panel
+        showPanel(panel);
+        
+        // Initialize event listeners
+        initializeEventListeners();
+    }
+
+    // Execute the main flow
+    executeEditShortcut();
 }
 
 async function convertBlobToBase64(blob) {
@@ -829,591 +992,868 @@ async function convertImageToString(file) {
     });
 }
 
-class Widget {
-    constructor(options = {}) {
-        this.id = options.id || `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        this.content = options.content || '';
-        this.cssClass = options.cssClass || 'widget-container';
-        this.draggable = options.draggable !== undefined ? options.draggable : true;
-        this.updateInterval = options.updateInterval || null;
-        this.intervalId = null;
-        this.element = null;
-        this.parentContainer = null;
-        this.dragEventListeners = [];
+// A single, self-contained function to handle all shortcut rearrangement logic.
+// This function sets up all necessary drag-and-drop event listeners.
+function initializeShortcutRearrangement() {
+    const shortcutContainers = document.querySelectorAll('.shortcut-container');
+    const gallery = document.getElementById('shortcut-gallery');
+
+    // State variables for the drag-and-drop process
+    let draggedShortcutData = null;
+    let rearrangeTimeout = null;
+
+    /**
+     * Clears all rearrangement-related visual states and timeouts.
+     */
+    function resetRearrangementState() {
+        if (rearrangeTimeout) {
+            clearTimeout(rearrangeTimeout);
+            rearrangeTimeout = null;
+        }
+        draggedShortcutData = null;
+
+        document.querySelectorAll('.shortcut-container').forEach(container => {
+            container.classList.remove(
+                'hover-target',
+                'hover-target-ready',
+                'rearrange-preview'
+            );
+        });
+
+        if (gallery) {
+            gallery.classList.remove('rearrange-mode');
+        }
     }
 
-    createElement() {
-        const widgetElement = document.createElement('div');
-        widgetElement.id = this.id;
-        widgetElement.classList.add(this.cssClass);
-        widgetElement.style.overflow = 'hidden';
-        widgetElement.draggable = this.draggable;
-        widgetElement.innerHTML = this.content;
-        
-        this.element = widgetElement;
-        return widgetElement;
+    /**
+     * Saves the dragged shortcut's data to a state variable.
+     * @param {HTMLElement} draggedElement - The shortcut being dragged.
+     */
+    function storeDraggedShortcutData(draggedElement) {
+        if (draggedElement) {
+            draggedShortcutData = {
+                id: draggedElement.id,
+                name: draggedElement.dataset.shortcutName,
+                href: draggedElement.dataset.href,
+                index: parseInt(draggedElement.dataset.shortcutIndex, 10)
+            };
+        }
     }
 
-    render(parentContainer) {
-        if (!parentContainer) {
-            console.error('Parent container is required to render widget');
+    /**
+     * Handles updating the shortcut order in storage and re-rendering.
+     * @param {number} fromIndex - The original index of the shortcut.
+     * @param {number} toIndex - The new index for the shortcut.
+     */
+    async function rearrangeShortcutsInStorage(fromIndex, toIndex) {
+        if (fromIndex === toIndex) {
             return;
         }
+        try {
+            const data = await storageMode.get('shortcuts');
+            const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
 
-        this.parentContainer = parentContainer;
-        const widgetElement = this.createElement();
-        parentContainer.appendChild(widgetElement);
-
-        // Register this widget instance globally
-        widgetInstances.set(this.id, this);
-
-        if (this.updateInterval && typeof this.update === 'function') {
-            this.startUpdateInterval();
-        }
-
-        if (this.draggable) {
-            this.setupDragAndDrop();
-        }
-
-        this.onRender();
-        return this;
-    }
-
-    addTrackedDragEventListener(element, event, handler) {
-        element.addEventListener(event, handler);
-        this.dragEventListeners.push({ element, event, handler });
-    }
-
-    cleanupDragEventListeners() {
-        this.dragEventListeners.forEach(({ element, event, handler }) => {
-            if (element && element.removeEventListener) {
-                element.removeEventListener(event, handler);
-            }
-        });
-        this.dragEventListeners = [];
-    }
-
-    setupDragAndDrop() {
-        if (!this.element) return;
-
-        const widget = this.element;
-
-        const clickHandler = (e) => {
-            // Prevent click during drag
-            if (isWidgetDragging) {
-                e.preventDefault();
+            if (fromIndex < 0 || fromIndex >= shortcuts.length || toIndex < 0 || toIndex >= shortcuts.length) {
+                console.error('Invalid indices for rearrangement.');
                 return;
             }
-            console.log(`Widget ${this.id} clicked.`);
-            this.onClick();
-        };
-        this.addTrackedDragEventListener(widget, 'click', clickHandler);
 
-        const dragStartHandler = (e) => {
-            console.log(`Widget ${this.id} started dragging.`);
-            isWidgetDragging = true;
-            e.dataTransfer.setData('text/plain', this.id);
-            e.dataTransfer.setData('text/widget-id', this.id);
-            e.dataTransfer.setData('text/widget-type', this.constructor.name);
-            e.dataTransfer.effectAllowed = 'move';
+            const [movedShortcut] = shortcuts.splice(fromIndex, 1);
+            shortcuts.splice(toIndex, 0, movedShortcut);
 
-            // Similar to shortcuts - add dragging class to area
-            const shortcutsArea = document.getElementById('shortcuts-area');
-            const gallery = document.getElementById('shortcut-gallery');
-            if (shortcutsArea) {
-                shortcutsArea.classList.add('dragging');
-            }
-            if (gallery) {
-                gallery.style.border = '2px solid var(--primary-color)';
-            }
-
-            widget.classList.add('dragging-source');
-            setTimeout(() => {
-                widget.style.visibility = 'hidden';
-            }, 0);
-
-            this.onDragStart(e);
-        };
-        this.addTrackedDragEventListener(widget, 'dragstart', dragStartHandler);
-
-        const dragEndHandler = (e) => {
-            console.log(`Widget ${this.id} drag ended.`);
-            isWidgetDragging = false;
-            
-            widget.classList.remove('dragging-source');
-            widget.classList.add('returning');
-            widget.style.visibility = '';
-            
-            setTimeout(() => {
-                widget.classList.remove('returning');
-            }, 500);
-
-            const shortcutsArea = document.getElementById('shortcuts-area');
-            const gallery = document.getElementById('shortcut-gallery');
-            if (shortcutsArea) {
-                shortcutsArea.classList.remove('dragging');
-            }
-            if (gallery) {
-                gallery.style.borderColor = 'transparent';
-            }
-
-            // Clean up action button states
-            const actionButtons = document.querySelectorAll('.action-button');
-            const actionIcons = document.querySelectorAll('.action-icon');
-            actionButtons.forEach((button, btnIndex) => {
-                button.classList.remove('dragover');
-                if (actionIcons[btnIndex]) { 
-                    actionIcons[btnIndex].style.color = 'var(--primary-color)';
-                }
-            });
-
-            this.onDragEnd(e);
-        };
-        this.addTrackedDragEventListener(widget, 'dragend', dragEndHandler);
+            await storageMode.set({ 'shortcuts': shortcuts });
+            await initializeShortcuts();
+        } catch (error) {
+            console.error('Error rearranging shortcuts:', error);
+        }
     }
 
-    // Static method to set up action buttons for all widgets
-    static setupActionButtons() {
-        console.log('Setup action buttons called!');
-        const actionButtons = document.querySelectorAll('.action-button');
-        const actionIcons = document.querySelectorAll('.action-icon');
+    // Set up drag event listeners for each shortcut container
+    shortcutContainers.forEach(container => {
+        const shortcut = container.querySelector('.shortcut-circle');
+        if (!shortcut) return;
 
-        actionButtons.forEach((actionButton, index) => {
-            const actionButtonId = actionButton.id;
-            console.log('Action button ID:', actionButtonId);
-            
-            // Clean up existing widget-related listeners
-            if (actionButton._widgetDragEnter) {
-                actionButton.removeEventListener('dragenter', actionButton._widgetDragEnter);
+        // Drag start event on the shortcut element
+        addTrackedEventListener(shortcut, 'dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', e.target.id);
+            storeDraggedShortcutData(e.target);
+            container.classList.add('is-dragging');
+            if (gallery) {
+                gallery.classList.add('rearrange-mode');
             }
-            if (actionButton._widgetDragOver) {
-                actionButton.removeEventListener('dragover', actionButton._widgetDragOver);
-            }
-            if (actionButton._widgetDragLeave) {
-                actionButton.removeEventListener('dragleave', actionButton._widgetDragLeave);
-            }
-            if (actionButton._widgetDrop) {
-                actionButton.removeEventListener('drop', actionButton._widgetDrop);
-            }
-            
-            const dragEnterHandler = (e) => {
-                e.preventDefault();
-                // Check if we're dragging a widget using the global flag
-                if (isWidgetDragging) {
-                    console.log('Widget drag entered action button.');
-                    actionButton.classList.add('dragover');
-                    if (actionIcons[index]) {
-                        actionIcons[index].style.color = '#ffffff';
-                    }
-                }
-            };
-            actionButton._widgetDragEnter = dragEnterHandler;
-            actionButton.addEventListener('dragenter', dragEnterHandler);
-
-            const dragOverHandler = (e) => {
-                e.preventDefault();
-                // Check if we're dragging a widget using the global flag
-                if (isWidgetDragging && !actionButton.classList.contains('dragover')) {
-                    actionButton.classList.add('dragover');
-                    if (actionIcons[index]) {
-                        actionIcons[index].style.color = '#ffffff';
-                    }
-                }
-            };
-            actionButton._widgetDragOver = dragOverHandler;
-            actionButton.addEventListener('dragover', dragOverHandler);
-
-            const dragLeaveHandler = (e) => {
-                if (isWidgetDragging && !actionButton.contains(e.relatedTarget) && e.relatedTarget !== actionButton) {
-                    console.log('Widget drag left action button.');
-                    actionButton.classList.remove('dragover');
-                    if (actionIcons[index]) {
-                        actionIcons[index].style.color = 'var(--primary-color)';
-                    }
-                }
-            };
-            actionButton._widgetDragLeave = dragLeaveHandler;
-            actionButton.addEventListener('dragleave', dragLeaveHandler);
-
-            const dropHandler = (e) => {
-                e.preventDefault();
-                if (!isWidgetDragging) return;
-                
-                console.log('Widget dropped on action button.');
-
-                actionButton.classList.remove('dragover');
-                if (actionIcons[index]) {
-                    actionIcons[index].style.color = 'var(--primary-color)';
-                }
-
-                const draggedWidgetId = e.dataTransfer.getData('text/widget-id');
-                const draggedWidgetType = e.dataTransfer.getData('text/widget-type');
-
-                if (draggedWidgetId) {
-                    console.log(`Dragged Widget ID: '${draggedWidgetId}'`);
-                    console.log(`Dragged Widget Type: '${draggedWidgetType}'`);
-
-                    const droppedWidgetElement = document.getElementById(draggedWidgetId);
-                    const widgetInstance = widgetInstances.get(draggedWidgetId);
-
-                    if (droppedWidgetElement && widgetInstance) {
-                        console.log('Actual dropped widget element:', droppedWidgetElement);
-                        
-                        const actionType = actionButton.dataset.action || `action-button-${index}`;
-                        console.log(`Action "${actionType}" triggered for widget '${draggedWidgetId}'`);
-                        
-                        // Handle different action types
-                        if (actionButtonId === 'delete-widget' || actionButtonId === 'delete-shortcut') {
-                            widgetInstance.deleteWidget(draggedWidgetId);
-                        }
-                        else if (actionButtonId === 'edit-widget' || actionButtonId === 'edit-shortcut') {
-                            widgetInstance.editWidget(draggedWidgetId);
-                        }
-                        
-                        widgetInstance.onActionButtonDrop(actionButtonId, draggedWidgetId, draggedWidgetType);
-                    } else {
-                        console.error(`Error: Dropped widget element with ID '${draggedWidgetId}' not found.`);
-                    }
-                } else {
-                    console.warn('No widget ID was transferred with the drag data.');
-                }
-            };
-            actionButton._widgetDrop = dropHandler;
-            actionButton.addEventListener('drop', dropHandler);
         });
-    }
 
-    deleteWidget(widgetId) {
-        const widgetElement = document.getElementById(widgetId);
-        if (widgetElement) {
-            const confirmDelete = confirm(`Are you sure you want to delete this widget?`);
-            if (confirmDelete) {
-                this.destroy();
-                console.log(`Widget ${widgetId} deleted.`);
+        // Drag end event to clean up after the drag operation
+        addTrackedEventListener(shortcut, 'dragend', () => {
+            container.classList.remove('is-dragging');
+            resetRearrangementState();
+        });
+
+        // Drop target event listeners on the containers
+        addTrackedEventListener(container, 'dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (!container.classList.contains('is-dragging')) {
+                container.classList.add('hover-target');
             }
-        }
-    }
+        });
 
-    editWidget(widgetId) {
-        const editWidgetContainer = document.getElementById('add-widget-container');
-        const editWidgetPanel = document.createElement('div');
-        editWidgetPanel.classList.add('add-widget-panel');
-        editWidgetContainer.appendChild(editWidgetPanel);
-    }
+        addTrackedEventListener(container, 'dragleave', () => {
+            container.classList.remove('hover-target');
+        });
 
-    onClick() {
-        console.log(`Widget ${this.id} clicked - Override this method in subclass`);
-    }
+        addTrackedEventListener(container, 'drop', async (e) => {
+            e.preventDefault();
+            container.classList.remove('hover-target');
 
-    onDragStart(e) {
-        // Override in subclass
-    }
+            if (!draggedShortcutData) {
+                return;
+            }
 
-    onDragEnd(e) {
-        // Override in subclass
-    }
+            const targetShortcut = container.querySelector('.shortcut-circle');
+            if (!targetShortcut) {
+                return;
+            }
 
-    onActionButtonDrop(actionId, widgetId, widgetType) {
-        console.log(`Action ${actionId} performed on widget ${widgetId} - Override this method in subclass`);
-    }
+            const sourceIndex = draggedShortcutData.index;
+            const targetIndex = parseInt(targetShortcut.dataset.shortcutIndex, 10);
 
-    startUpdateInterval() {
-        if (this.updateInterval) {
-            this.intervalId = setInterval(() => {
-                this.update();
-            }, this.updateInterval);
-        }
-    }
+            // Check if shortcut to re arrange is the source index
+            if (sourceIndex !== targetIndex) {
+                await rearrangeShortcutsInStorage(sourceIndex, targetIndex);
+            }
+            resetRearrangementState();
+        });
+    });
 
-    stopUpdateInterval() {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
-        }
-    }
-
-    update() {
-        // Override in subclass
-    }
-
-    onRender() {
-        // Override in subclass
-    }
-
-    destroy() {
-        this.stopUpdateInterval();
-        this.cleanupDragEventListeners();
-        
-        // Remove from global registry
-        widgetInstances.delete(this.id);
-        
-        if (this.element && this.element.parentNode) {
-            this.element.parentNode.removeChild(this.element);
-        }
-        this.element = null;
-        this.parentContainer = null;
-    }
-
-    setContent(newContent) {
-        this.content = newContent;
-        if (this.element) {
-            this.element.innerHTML = newContent;
-        }
-    }
-
-    addClass(className) {
-        if (this.element) {
-            this.element.classList.add(className);
-        }
-    }
-
-    removeClass(className) {
-        if (this.element) {
-            this.element.classList.remove(className);
-        }
+    // Gallery drop handler to reset state if a shortcut is dropped outside of a valid target.
+    if (gallery) {
+        addTrackedEventListener(gallery, 'drop', (e) => {
+            e.preventDefault();
+            resetRearrangementState();
+        });
+        addTrackedEventListener(gallery, 'dragover', (e) => {
+            e.preventDefault();
+        });
     }
 }
 
-class TimeWidget extends Widget {
-    constructor(options = {}) {
-        const defaultOptions = {
-            cssClass: 'time-container',
-            updateInterval: 500,
-            timeFormat: options.timeFormat || '24hour',
-            showSeconds: options.showSeconds || false,
-            ...options
-        };
-
-        defaultOptions.content = TimeWidget.generateTimeHTML(
-            defaultOptions.timeFormat, 
-            defaultOptions.showSeconds
+function resetRearrangementState() {
+    clearRearrangementTimeout();
+    isRearranging = false;
+    rearrangeTarget = null;
+    draggedShortcutData = null;
+    
+    // Clear all visual states
+    document.querySelectorAll('.shortcut-container').forEach(container => {
+        container.classList.remove(
+            'hover-target', 
+            'hover-target-ready', 
+            'insertion-point',
+            'rearrange-preview'
         );
-
-        super(defaultOptions);
-        this.timeFormat = defaultOptions.timeFormat;
-        this.showSeconds = defaultOptions.showSeconds;
+    });
+    
+    const gallery = document.getElementById('shortcut-gallery');
+    if (gallery) {
+        gallery.classList.remove('rearrange-mode');
     }
+}
 
-    static generateTimeHTML(timeFormat = '24hour', showSeconds = false) {
-        const time = TimeWidget.getCurrentTime(timeFormat, showSeconds);
-        return `<h1 id="current-time-text">${time}</h1>`;
+function clearRearrangementTimeout() {
+    if (rearrangeTimeout) {
+        clearTimeout(rearrangeTimeout);
+        rearrangeTimeout = null;
     }
+}
 
-    static getCurrentTime(timeFormat = '24hour', showSeconds = false) {
-        const currentDate = new Date();
-        let currentHour = currentDate.getHours();
-        const currentMinute = currentDate.getMinutes();
-        const currentSecond = currentDate.getSeconds();
-
-        if (timeFormat === '12hour' && currentHour > 12) {
-            currentHour = currentHour % 12;
-        }
-        if (timeFormat === '12hour' && currentHour === 0) {
-            currentHour = 12;
-        }
-
-        let timeString = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+function makeWidgetsDynamic() {
+    try {
+        // Set up action buttons for all widgets
+        Widget.setupActionButtons();
         
-        if (showSeconds) {
-            timeString += `:${currentSecond.toString().padStart(2, '0')}`;
-        }
-
-        if (timeFormat === '12hour') {
-            const ampm = currentDate.getHours() >= 12 ? 'PM' : 'AM';
-            timeString += ` ${ampm}`;
-        }
-
-        return timeString;
-    }
-
-    update() {
-        const timeElement = this.element?.querySelector('#current-time-text');
-        if (timeElement) {
-            timeElement.textContent = TimeWidget.getCurrentTime(this.timeFormat, this.showSeconds);
-        }
-    }
-
-    setTimeFormat(format) {
-        this.timeFormat = format;
-        this.update();
-    }
-
-    toggleSeconds() {
-        this.showSeconds = !this.showSeconds;
-        this.update();
-    }
-
-    onClick() {
-        console.log(`Time widget ${this.id} clicked - toggling seconds`);
-        this.toggleSeconds();
-    }
-
-    editWidget(widgetId) {
-        const addWidgetContainer = document.getElementById('add-widget-container');
-        let temporaryOptions = {'format': this.timeFormat || '24hour', 'seconds': this.showSeconds || false};
-        let currentTime;
-
-        if (twelvehclock === true) {
-            currentTime = TimeWidget.getCurrentTime('12hour', temporaryOptions['seconds']);
-            temporaryOptions['format'] = '12hour';
-        } else {
-            currentTime = TimeWidget.getCurrentTime('24hour', temporaryOptions['seconds']);
-            temporaryOptions['format'] = '24hour';
+        // Add ripple effects for widgets (assuming buttonRippleEffect is defined elsewhere)
+        if (typeof buttonRippleEffect === 'function') {
+            buttonRippleEffect();
         }
         
-        if (document.querySelectorAll('.add-widget-panel').length === 0) {
-            const handleClickOutside = (event) => {
-                if (currentWidgetPanel &&
-                    !currentWidgetPanel.contains(event.target)) {
-                    currentWidgetPanel.classList.add('fade-out');
-
-                    currentWidgetPanel.addEventListener('transitionend', function handler(e) {
-                        if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                            if (currentWidgetPanel && currentWidgetPanel.parentNode) {
-                                currentWidgetPanel.parentNode.removeChild(currentWidgetPanel);
-                            }
-                            currentWidgetPanel = null;
-                            document.removeEventListener('click', handleClickOutside);
-                            e.currentTarget.removeEventListener('transitionend', handler);
-                        }
-                    });
-                }
-            };
-
-            if (currentWidgetPanel) {
-                return;
-            }
-            
-            const editWidgetPanel = document.createElement('div');
-            editWidgetPanel.id = "edit-widget-panel";
-            editWidgetPanel.classList.add('add-widget-panel'); // Uses shared panel styles
-            editWidgetPanel.innerHTML = `
-                <h2>Edit Widget</h2>
-                <div class="widget-container-preview">
-                    <div class="time-container-preview">
-                        <h1 id="current-time-text-preview">${currentTime}</h1>
-                    </div>
-                </div>
-                <form id="edit-widget-form">
-                    <label for="widget-format">Time Format</label>
-                    <select id="widget-format" name="widget-format" class="widget-input">
-                        <option value="12hour" ${this.timeFormat === '12hour' ? 'selected' : ''}>12 Hour</option>
-                        <option value="24hour" ${this.timeFormat === '24hour' ? 'selected' : ''}>24 Hour</option>
-                    </select>
-                    <div class="label-checkbox-group">
-                        <label for="widget-seconds">Show Seconds</label>
-                        <input type="checkbox" id="widget-seconds" name="widget-seconds" class="widget-input" ${this.showSeconds ? 'checked' : ''}>
-                    </div>
-                    <button type="submit" id="submit-widget-btn" class="button-style">
-                        <span class="material-symbols-outlined">check</span>
-                    </button>
-                </form>
-            `;
-            addWidgetContainer.appendChild(editWidgetPanel);
-            currentWidgetPanel = editWidgetPanel;
-
-            const widgetFormatForm = document.getElementById('widget-format');
-            widgetFormatForm.addEventListener('change', () => {
-                const changedWidgetFormat = widgetFormatForm.value;
-                const currentTimeText = document.getElementById('current-time-text-preview');
-                if (changedWidgetFormat === '12hour') {
-                    currentTime = TimeWidget.getCurrentTime('12hour', temporaryOptions['seconds']);
-                    temporaryOptions['format'] = '12hour';
-                } else {
-                    currentTime = TimeWidget.getCurrentTime('24hour', temporaryOptions['seconds']);
-                    temporaryOptions['format'] = '24hour';
-                }
-                currentTimeText.textContent = `${currentTime}`;
-            });
-
-            const widgetSecondsForm = document.getElementById('widget-seconds');
-            widgetSecondsForm.addEventListener('change', () => {
-                const widgetSecondsState = widgetSecondsForm.checked;
-                const currentTimeText = document.getElementById('current-time-text-preview');
-                if (widgetSecondsState) {
-                    currentTime = TimeWidget.getCurrentTime(temporaryOptions['format'], true);
-                    temporaryOptions['seconds'] = true;
-                } else {
-                    currentTime = TimeWidget.getCurrentTime(temporaryOptions['format'], false);
-                    temporaryOptions['seconds'] = false;
-                }
-                currentTimeText.textContent = `${currentTime}`;
-            });
-
-            const widgetForm = document.getElementById('edit-widget-form');
-            widgetForm.addEventListener('submit', (event) => {
-                event.preventDefault();
-                const formData = new FormData(widgetForm);
-                
-                const newFormat = formData.get('widget-format');
-                const showSeconds = formData.has('widget-seconds');
-                
-                this.setTimeFormat(newFormat);
-                this.showSeconds = showSeconds;
-                this.update();
-
-                if (currentWidgetPanel) {
-                    currentWidgetPanel.classList.add('fade-out');
-                    currentWidgetPanel.addEventListener('transitionend', function handler(e) {
-                        if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
-                            if (currentWidgetPanel && currentWidgetPanel.parentNode) {
-                                currentWidgetPanel.parentNode.removeChild(currentWidgetPanel);
-                            }
-                            currentWidgetPanel = null;
-                            document.removeEventListener('click', handleClickOutside);
-                            e.currentTarget.removeEventListener('transitionend', handler);
-                        }
-                    });
-                }
-            });
-
-            setTimeout(() => {
-                editWidgetPanel.classList.add('fade-in');
-            }, 10);
-
-            setTimeout(() => {
-                document.addEventListener('click', handleClickOutside);
-            }, 0);
-        }
+        console.log(`Set up drag and drop for ${widgetInstances.size} widgets`);
+    } catch (error) {
+        console.error('Error making widgets dynamic:', error);
     }
 }
 
 function createTimeWidget(parentContainer, options = {}) {
-    const timeWidget = new TimeWidget({
-        timeFormat: twelvehclock ? '12hour' : '24hour',
-        showSeconds: false,
-        draggable: true,
-        ...options
-    });
+    console.log('Create time widget called.');
+    if (!parentContainer) {
+        console.error('Parent container is required to create time widget');
+        return null;
+    }
 
-    return timeWidget.render(parentContainer);
+    const timeOptions = {
+        timeFormat: options.timeFormat || '12hour',
+        showSeconds: options.showSeconds || false,
+        font: options.font || 'Google Sans',
+        ...options
+    };
+
+    return createWidget('timeWidget', parentContainer, timeOptions);
 }
 
-function showDynamicTabBriefContent() {
-    const container = document.getElementById('dynamic-content-container');
-    if (container) {
-        const timeWidget = createTimeWidget(container, {
-            id: 'main-time-widget',
-            timeFormat: twelvehclock ? '12hour' : '24hour'
+function createQuoteWidget(parentContainer, options = {}) {
+    console.log('Create quote widget called.');
+    if (!parentContainer) {
+        console.error('Parent container is required to create quote widget');
+        return null;
+    }
+
+    const quoteOptions = {
+        quotes: options.quotes || quotes,
+        font: options.font || 'Google Sans',
+        ...options
+    };
+
+    console.log(quoteOptions);
+
+    return createWidget('quote', parentContainer, quoteOptions);
+}
+
+function createItemDropdownMenu() {
+    const createItemButton = document.getElementById('create-item');
+    const createItemIcon = document.getElementById('create-item-icon');
+
+    createItemButton.addEventListener('click', () => {
+        const dropdownMenu = document.getElementById('dropdown-menu');
+
+        // Check if the dropdown menu exists.
+        if (dropdownMenu) {
+            // It exists, so we're closing it.
+            // First, remove the slide-in class to start the slide-out animation.
+            dropdownMenu.classList.remove('slide-in');
+
+            // Now, remove the 'dropdown-open' class from the icon to rotate it back.
+            createItemIcon.classList.remove('dropdown-open');
+
+            // Wait for the slide-out transition to finish before removing the element.
+            dropdownMenu.addEventListener('transitionend', () => {
+                dropdownMenu.remove();
+            }, { once: true });
+            
+        } else {
+            // It doesn't exist, so we're opening it.
+            // Create the new dropdown menu element.
+            const newDropdownMenu = document.createElement('div');
+            newDropdownMenu.classList.add('dropdown-menu');
+            newDropdownMenu.id = 'dropdown-menu';
+            newDropdownMenu.innerHTML = `
+                <button class="button-style" id="create-shortcut">
+                    <span class="material-symbols-outlined">switch_access_shortcut</span>
+                </button>
+                <button class="button-style" id="create-widget">
+                    <span class="material-symbols-outlined">widgets</span>
+                </button>
+            `;
+            createItemButton.before(newDropdownMenu);
+            buttonRippleEffect();
+
+            // Use a slight delay to allow the element to be rendered
+            // before adding the slide-in class. This ensures the transition works.
+            setTimeout(() => {
+                newDropdownMenu.classList.add('slide-in');
+            }, 10);
+
+            // Add the 'dropdown-open' class to the icon to rotate it.
+            createItemIcon.classList.add('dropdown-open');
+
+            // ADD EVENT LISTENERS FOR THE NEWLY CREATED BUTTONS
+            setupDropdownEventListeners();
+        }
+    });
+}
+
+// NEW FUNCTION: Set up event listeners for dropdown buttons
+function setupDropdownEventListeners() {
+    const createShortcutButton = document.getElementById('create-shortcut');
+    const createWidgetButton = document.getElementById('create-widget');
+
+    if (createShortcutButton) {
+        createShortcutButton.addEventListener('click', () => {
+            // Close the dropdown first
+            closeDropdownMenu();
+            // Then trigger the shortcut creation
+            triggerCreateShortcut();
         });
     }
-    makeWidgetsDynamic();
+
+    if (createWidgetButton) {
+        createWidgetButton.addEventListener('click', () => {
+            // Close the dropdown first
+            closeDropdownMenu();
+            // Then trigger the widget creation
+            triggerCreateWidget();
+        });
+    }
+    document.addEventListener('click', (event) => {
+        // Get references to the button and the dropdown menu.
+        const createItemButton = document.getElementById('create-item');
+        const dropdownMenu = document.getElementById('dropdown-menu');
+
+        // Check if the dropdown menu exists and the click was outside of it.
+        if (dropdownMenu && !dropdownMenu.contains(event.target) && !createItemButton.contains(event.target)) {
+            // The click was outside the dropdown and the button, so close the dropdown.
+            closeDropdownMenu();
+        }
+    });
 }
 
-function makeWidgetsDynamic() {
-    // Set up action buttons for all widgets
-    Widget.setupActionButtons();
+// HELPER FUNCTION: Close dropdown menu
+function closeDropdownMenu() {
+    const dropdownMenu = document.getElementById('dropdown-menu');
+    const createItemIcon = document.getElementById('create-item-icon');
     
-    // Add ripple effects for widgets
-    buttonRippleEffect();
+    if (dropdownMenu) {
+        dropdownMenu.classList.remove('slide-in');
+        if (createItemIcon) {
+            createItemIcon.classList.remove('dropdown-open');
+        }
+        
+        dropdownMenu.addEventListener('transitionend', () => {
+            if (dropdownMenu.parentNode) {
+                dropdownMenu.remove();
+            }
+        }, { once: true });
+    }
+}
+
+// HELPER FUNCTION: Trigger shortcut creation
+function triggerCreateShortcut() {
+    const addShortcutContainer = document.getElementById('add-shortcut-container');
     
-    console.log(`Set up drag and drop for ${widgetInstances.size} widgets`);
+    // Early validation and return
+    if (!addShortcutContainer) {
+        console.error('Add shortcut container not found');
+        return;
+    }
+    
+    if (currentShortcutPanel) {
+        return;
+    }
+
+    // Nested function to handle closing the shortcut panel
+    function closePanel() {
+        if (!currentShortcutPanel) return;
+        
+        currentShortcutPanel.classList.add('fade-out');
+        addShortcutContainer.classList.remove('grey-out');
+
+        const handleTransitionEnd = (e) => {
+            if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
+                if (currentShortcutPanel && currentShortcutPanel.parentNode) {
+                    currentShortcutPanel.parentNode.removeChild(currentShortcutPanel);
+                }
+                currentShortcutPanel = null;
+                document.removeEventListener('click', handleClickOutside);
+                e.currentTarget.removeEventListener('transitionend', handleTransitionEnd);
+            }
+        };
+
+        currentShortcutPanel.addEventListener('transitionend', handleTransitionEnd);
+    }
+
+    // Nested function to handle clicks outside the panel
+    function handleClickOutside(event) {
+        if (currentShortcutPanel && !currentShortcutPanel.contains(event.target)) {
+            closePanel();
+        }
+    }
+
+    // Nested function to handle escape key press
+    function handleEscapeKey(event) {
+        if (currentShortcutPanel && event.key === 'Escape') {
+            closePanel();
+        }
+    }
+
+    // Nested function to create the panel HTML structure
+    function createPanelHTML() {
+        return `
+            <h2>Add Shortcut</h2>
+            <div class="shortcut-container-preview">
+                <div class="shortcut-circle-preview">
+                    <img src="../assets/unknown_icon.svg" id="icon-preview" class="shortcut-icon">
+                </div>
+                <p class="shortcut-title" id="shortcut-title-preview">New Shortcut</p>
+            </div>
+            <form id="add-shortcut-form">
+                <label for="shortcut-name">Shortcut Name</label>
+                <input type="text" id="shortcut-name" placeholder="New Shortcut" name="shortcut-name" class="shortcut-input" autocomplete="off" required autofocus>
+                <label for="shortcut-url">Shortcut URL</label>
+                <input type="url" id="shortcut-url" value="https://" placeholder="https://www.google.com" name="shortcut-url" class="shortcut-input" autocomplete="off" required>
+                <label for="shortcut-icon-input">Custom Icon</label>
+                <input type="file" accept=".png, .jpg, .jpeg, .svg, .webp" id="shortcut-icon-input" name="shortcut-icon-input" class="shortcut-input">
+                <button type="submit" id="submit-shortcut-btn" class="button-style"><span class="material-symbols-outlined">check</span></button>
+            </form>
+        `;
+    }
+
+    // Nested function to create the main panel structure
+    function createPanelStructure() {
+        const addShortcutPanel = document.createElement('div');
+        addShortcutPanel.id = "add-shortcut-panel";
+        addShortcutPanel.classList.add('add-shortcut-panel');
+        addShortcutPanel.innerHTML = createPanelHTML();
+        
+        return addShortcutPanel;
+    }
+
+    // Nested function to handle icon processing
+    async function processShortcutIcon(formData, shortcutURL) {
+        const fileInput = formData.get('shortcut-icon-input');
+        let iconToSave = null;
+        let shortcutCustomImage = false;
+
+        // Try to use custom uploaded image first
+        if (fileInput && fileInput.size > 0) {
+            try {
+                iconToSave = await convertImageToString(fileInput);
+                shortcutCustomImage = true;
+                console.log('Custom image processed successfully');
+            } catch (error) {
+                console.error("Error converting custom image to Base64:", error);
+            }
+        }
+
+        // Fall back to favicon if no custom image or custom image failed
+        if (!iconToSave) {
+            iconToSave = await fetchFaviconIcon(shortcutURL);
+            shortcutCustomImage = false;
+        }
+
+        return { iconToSave, shortcutCustomImage };
+    }
+
+    // Nested function to fetch favicon
+    async function fetchFaviconIcon(shortcutURL) {
+        const defaultFaviconUrlAttempt = getFaviconUrl(shortcutURL);
+        
+        try {
+            const response = await fetch(defaultFaviconUrlAttempt);
+            if (response.ok) {
+                const blob = await response.blob();
+                return await convertBlobToBase64(blob);
+            } else {
+                console.warn(`Could not fetch favicon for ${shortcutURL}. Status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`Error fetching or converting default favicon for ${shortcutURL}:`, error);
+        }
+        
+        return null;
+    }
+
+    // Nested function to create shortcut object
+    function createShortcutObject(shortcutName, shortcutURL, iconToSave, shortcutCustomImage) {
+        const baseShortcut = {
+            'name': shortcutName,
+            'href': shortcutURL,
+            'hasCustomImage': shortcutCustomImage
+        };
+
+        if (iconToSave) {
+            baseShortcut.image = iconToSave;
+        }
+
+        return baseShortcut;
+    }
+
+    // Nested function to save shortcut and close panel
+    async function saveAndCloseShortcutPanel(shortcut) {
+        try {
+            // Save to storage
+            const result = await storageMode.get('shortcuts');
+            const currentShortcuts = Array.isArray(result.shortcuts) ? result.shortcuts : [];
+            currentShortcuts.push(shortcut);
+            await storageMode.set({'shortcuts': currentShortcuts});
+
+            // Close panel and refresh UI
+            closePanel();
+            initializeShortcuts();
+            
+            console.log('Shortcut saved successfully:', shortcut);
+        } catch (error) {
+            console.error("Error saving shortcut:", error);
+        }
+    }
+
+    // Nested function to handle form submission
+    async function handleFormSubmission(event) {
+        event.preventDefault();
+        
+        const shortcutForm = event.target;
+        const formData = new FormData(shortcutForm);
+
+        const shortcutName = formData.get('shortcut-name');
+        const shortcutURL = formData.get('shortcut-url');
+
+        try {
+            // Process icon (custom or favicon)
+            const { iconToSave, shortcutCustomImage } = await processShortcutIcon(formData, shortcutURL);
+            
+            // Create shortcut object
+            const newShortcut = createShortcutObject(shortcutName, shortcutURL, iconToSave, shortcutCustomImage);
+            
+            // Save and close
+            await saveAndCloseShortcutPanel(newShortcut);
+        } catch (error) {
+            console.error('Error processing shortcut form:', error);
+        }
+    }
+
+    // Nested function to initialize form event listeners
+    function initializeFormListeners() {
+        const shortcutForm = document.getElementById('add-shortcut-form');
+        if (shortcutForm) {
+            shortcutForm.addEventListener('submit', handleFormSubmission);
+        }
+    }
+
+    // Nested function to show the panel with animations
+    function showPanel(panel) {
+        addShortcutContainer.appendChild(panel);
+        currentShortcutPanel = panel;
+
+        // Initialize image preview functionality
+        previewUploadedImage();
+        
+        // Initialize form listeners
+        initializeFormListeners();
+
+        // Trigger animations after a brief delay
+        setTimeout(() => {
+            panel.classList.add('fade-in');
+            addShortcutContainer.classList.add('grey-out');
+        }, 10);
+    }
+
+    // Nested function to initialize event listeners
+    function initializeEventListeners() {
+        // Add click outside listener after a brief delay to avoid immediate triggering
+        setTimeout(() => {
+            document.addEventListener('click', handleClickOutside);
+            document.addEventListener('keydown', handleEscapeKey);
+        }, 0);
+    }
+
+    // Main execution flow
+    function executeCreateShortcut() {
+        // Create the panel structure
+        const panel = createPanelStructure();
+        
+        // Show the panel
+        showPanel(panel);
+        
+        // Initialize event listeners
+        initializeEventListeners();
+    }
+
+    // Execute the main flow
+    executeCreateShortcut();
+}
+
+function triggerCreateWidget() {
+    const addWidgetContainer = document.getElementById('add-widget-container');
+    let carouselIndex = 0;
+    const carouselItems = [];
+    
+    // Early return if panel already exists
+    if (currentWidgetPanel) {
+        return;
+    }
+
+    // Nested function to handle closing the widget panel
+    function closePanel() {
+        if (!currentWidgetPanel) return;
+        
+        currentWidgetPanel.classList.add('fade-out');
+        addWidgetContainer.classList.remove('grey-out');
+
+        const handleTransitionEnd = (e) => {
+            if (e.propertyName === 'opacity' || e.propertyName === 'transform') {
+                if (currentWidgetPanel && currentWidgetPanel.parentNode) {
+                    currentWidgetPanel.parentNode.removeChild(currentWidgetPanel);
+                }
+                currentWidgetPanel = null;
+                document.removeEventListener('click', handleClickOutside);
+                e.currentTarget.removeEventListener('transitionend', handleTransitionEnd);
+            }
+        };
+
+        currentWidgetPanel.addEventListener('transitionend', handleTransitionEnd);
+    }
+
+    // Nested function to handle clicks outside the panel
+    function handleClickOutside(event) {
+        if (currentWidgetPanel && !currentWidgetPanel.contains(event.target)) {
+            closePanel();
+        }
+    }
+
+    function handleEscapeKey(event) {
+        if (currentWidgetPanel && event.key === 'Escape') {
+            closePanel();
+        }
+    }
+
+    // Nested function to create individual carousel items
+    function createCarouselItem(widget) {
+        console.log('Adding widget to carousel:', widget);
+        
+        // Create the main carousel item container
+        const carouselItem = document.createElement('div');
+        carouselItem.id = `${widget.replace(/\s/g, "-")}-carousel-item`;
+        carouselItem.classList.add('widget-carousel-item');
+        
+        // Wrapper button for the image
+        const warpperButton = document.createElement('button');
+        warpperButton.classList.add('image-wrapper-button');
+
+        // Create and configure the image
+        const image = document.createElement('img');
+        image.classList.add('widget-carousel-image');
+        image.draggable = false;
+        image.src = `../assets/widget_previews/${widget}.png`;
+        warpperButton.appendChild(image);
+
+        // Append the button to the carousel item
+        carouselItem.appendChild(warpperButton);
+        
+        // Create and configure the text
+        const text = document.createElement('h2');
+        text.classList.add('widget-carousel-text');
+        text.textContent = widget;
+        carouselItem.appendChild(text);
+        
+        return carouselItem;
+    }
+
+    // Nested function to create the widget carousel
+    function createWidgetCarousel(widgets) {
+        // Create and append each carousel item to an array
+        widgets.forEach(widget => {
+            const carouselItem = createCarouselItem(widget);
+            carouselItems.push(carouselItem);
+        });
+    }
+
+    function createNavigationIndicators(widgets) {
+        const navigationIndicatorDiv = document.createElement('div');
+        navigationIndicatorDiv.id = 'navigation-indicator-div';
+        navigationIndicatorDiv.classList.add('navigation-indicator-div');
+
+        // Create the navigation dots
+        widgets.forEach(widget => {
+            // Create the circle indicator
+            const widgetIndicatorCircle = document.createElement('button');
+            widgetIndicatorCircle.classList.add('widget-indicator-circle');
+            navigationIndicatorDiv.appendChild(widgetIndicatorCircle);
+        });
+
+        return navigationIndicatorDiv;
+    }
+
+    function displayWidgetCarousel() {
+        const widgetCarousel = document.getElementById('add-widget-carousel');
+        
+        // Clear any existing carousel items
+        widgetCarousel.innerHTML = '';
+
+        // Append the current index to the carousel
+        widgetCarousel.appendChild(carouselItems[carouselIndex]);
+    }
+
+    // Nested function to create the main panel structure
+    function createPanelStructure() {
+        const addWidgetPanel = document.createElement('div');
+        addWidgetPanel.id = 'add-widget-panel';
+        addWidgetPanel.classList.add('add-widget-panel');
+        
+        // Create the left nav arrow
+        const leftNavArrowContainer = document.createElement('div');
+        leftNavArrowContainer.classList.add('nav-arrow-container');
+        const leftNavArrowButton = document.createElement('button');
+        leftNavArrowButton.id = 'left-nav-arrow-button';
+        leftNavArrowButton.classList.add('button-style', 'nav-arrow-button');
+        leftNavArrowButton.innerHTML = `
+        <span class="material-symbols-outlined">chevron_left</span>
+        `;
+        leftNavArrowContainer.appendChild(leftNavArrowButton);
+        addWidgetPanel.appendChild(leftNavArrowContainer);
+
+        // Create the center container
+        const centerContentContainer = document.createElement('div');
+        centerContentContainer.classList.add('create-widget-main-content');
+        // Create and add the title
+        const widgetText = document.createElement('h2');
+        widgetText.textContent = 'Add Widget';
+        centerContentContainer.appendChild(widgetText);
+        // Create and add the carousel container
+        const widgetCarousel = document.createElement('div');
+        widgetCarousel.id = 'add-widget-carousel';
+        widgetCarousel.classList.add('add-widget-carousel');
+        centerContentContainer.appendChild(widgetCarousel);
+        // Create the navigation indicators
+        const navigationIndicators = createNavigationIndicators(widgetsTypesArray);
+        centerContentContainer.appendChild(navigationIndicators);
+        // Append the center content to the widget panel
+        addWidgetPanel.appendChild(centerContentContainer);
+        
+        // Create the right nav arrow
+        const rightNavArrowContainer = document.createElement('div');
+        rightNavArrowContainer.classList.add('nav-arrow-container');
+        const rightNavArrowButton = document.createElement('button');
+        rightNavArrowButton.id = 'right-nav-arrow-button';
+        rightNavArrowButton.classList.add('button-style', 'nav-arrow-button');
+        rightNavArrowButton.innerHTML = `
+        <span class="material-symbols-outlined">chevron_right</span>
+        `;
+        rightNavArrowContainer.appendChild(rightNavArrowButton);
+        addWidgetPanel.appendChild(rightNavArrowContainer);
+
+        return addWidgetPanel;
+    }
+
+    // Nested function to show the panel with animations
+    function showPanel(panel) {
+        addWidgetContainer.appendChild(panel);
+        currentWidgetPanel = panel;
+
+        // Trigger animations after a brief delay
+        setTimeout(() => {
+            panel.classList.add('fade-in');
+            addWidgetContainer.classList.add('grey-out');
+        }, 10);
+    }
+
+    // Nested function to initialize event listeners
+    function initializeEventListeners() {
+        // Add event listeners after a brief delay to avoid immediate triggering
+        setTimeout(() => {
+            document.addEventListener('click', handleClickOutside);
+            document.addEventListener('keydown', handleEscapeKey);
+        }, 0);
+    }
+
+    function changeWidgetPreview() {
+        console.log('Carousel index:', carouselIndex);
+        console.log('Carousel items length:', carouselItems.length);
+        const leftNavArrow = document.getElementById('left-nav-arrow-button');
+        const rightNavArrow = document.getElementById('right-nav-arrow-button');
+        const widgetIndicators = document.querySelectorAll('.widget-indicator-circle');
+
+        leftNavArrow.addEventListener('click', () => {
+            console.log('Left nav arrow clicked.');
+            if (carouselIndex > 0) {
+                carouselIndex = carouselIndex - 1;
+                displayWidgetCarousel();
+                changeNavigationIndicators();
+            }
+        });
+
+        rightNavArrow.addEventListener('click', () => {
+            console.log('Right nav arrow clicked.');
+            if (carouselIndex < carouselItems.length - 1) {
+                carouselIndex = carouselIndex + 1;
+                displayWidgetCarousel();
+                changeNavigationIndicators();
+            }
+        });
+
+        widgetIndicators.forEach((indicator, index) => {
+            indicator.addEventListener('click', () => {
+                console.log('Switching to widget index:', index);
+                carouselIndex = index;
+                displayWidgetCarousel();
+                changeNavigationIndicators();
+            });
+        });
+    }
+
+    function changeNavigationIndicators() {
+        const navigationIndicators = document.querySelectorAll('.widget-indicator-circle');
+        // Ensure everything else is set to the default color
+        navigationIndicators.forEach(navigationIndicator => {
+            navigationIndicator.style.backgroundColor = 'var(--light-background-color)';
+        });
+        // Set the current navigation indicator to the primary color
+        navigationIndicators[carouselIndex].style.backgroundColor = 'var(--primary-color)';
+    }
+
+    function redirectOnceClicked() {
+        const itemClicked = carouselItems[carouselIndex];
+        console.log('Carousel item clicked:', itemClicked);
+        const itemClickedString = itemClicked.id.slice(0, -'-carousel-item'.length).split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join('');
+        console.log(itemClickedString);
+        const functionToCall = widgetFunctions[itemClickedString];
+        // Check if the function to call is a function defined in the file
+        if (typeof functionToCall === 'function') {
+            console.log('Function to call:', functionToCall);
+            functionToCall(document.getElementById('dynamic-content-container'));
+            closePanel();
+        } else {
+            console.log(`Error: Function '${functionToCall}' not found.`);
+            alert('An unexpected error occurred.');
+        }
+    }
+
+    function redirectToWidgetCreation() {
+        const widgetCarousel = document.getElementById('add-widget-carousel');
+
+        // Attach only once
+        if (!widgetCarousel.dataset.listenerAttached) {
+            widgetCarousel.addEventListener('click', (e) => {
+                const button = e.target.closest('.image-wrapper-button');
+                if (!button) return;
+
+                // Current index will always be correct since it's updated on navigation
+                console.log('Carousel item clicked:', carouselItems[carouselIndex]);
+                redirectOnceClicked();
+            });
+
+            // Mark as attached so we don't double-bind
+            widgetCarousel.dataset.listenerAttached = 'true';
+        }
+    }
+
+    // Main execution flow
+    function executeCreateWidget() {
+        // Create the panel structure
+        const panel = createPanelStructure();
+        
+        // Show the panel
+        showPanel(panel);
+        
+        // Create the widget carousel
+        createWidgetCarousel(widgetsTypesArray);
+
+        // Display a single widget preview and the ability to change the displayed widget
+        displayWidgetCarousel();
+        changeWidgetPreview();
+        changeNavigationIndicators();
+        redirectToWidgetCreation();
+        
+        // Initialize event listeners
+        initializeEventListeners();
+        buttonRippleEffect();
+    }
+
+    // Execute the main flow
+    executeCreateWidget();
 }
 
 async function initializePage() {
     await initializeShortcuts();
-    createShortcut();
-    showDynamicTabBriefContent();
+    await initializeWidgets();
+    createItemDropdownMenu();
 }
 
 document.addEventListener('DOMContentLoaded', initializePage);

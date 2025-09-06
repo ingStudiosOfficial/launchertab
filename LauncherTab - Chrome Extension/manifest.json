@@ -8,7 +8,8 @@
         "newtab": "newtab/newtab.html"
     },
     "background": {
-      "service_worker": "background.js"
+      "service_worker": "background.js",
+      "type": "module"
     },
     "permissions": [
         "tabs",
@@ -18,7 +19,8 @@
     "web_accessible_resources": [
         {
         "resources": ["_favicon/*"],
-        "matches": ["<all_urls>"]
+        "matches": ["<all_urls>"],
+        "extension_ids": ["*"]
         }
     ],
     "icons": {

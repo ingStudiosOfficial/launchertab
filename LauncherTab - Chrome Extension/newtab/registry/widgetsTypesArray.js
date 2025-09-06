@@ -1,0 +1,1 @@
+export const widgetsTypesArray = ['Digital Clock', 'Quote'];

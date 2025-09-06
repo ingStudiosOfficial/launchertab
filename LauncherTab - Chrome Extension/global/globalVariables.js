@@ -1,0 +1,1 @@
+export let storageMode = chrome.storage.local;

@@ -1,0 +1,1 @@
+export let widgetInstances = new Map();

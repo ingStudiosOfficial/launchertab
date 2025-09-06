@@ -1,19 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Bitcount+Prop+Single:wght@100..900&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap');
-
-/* ===== CSS VARIABLES ===== */
-:root {
-    /* Define your blueish theme colors */
-    --primary-color: #2196F3; /* A standard Material Blue 500 */
-    --primary-light: #64B5F6; /* Material Blue 300 */
-    --primary-dark: #1976D2; /* Material Blue 700 */
-    --primary-darkest: #0D47A1; /* Material Blue 900 */
-    --secondary-color: #03A9F4; /* A complementary light blue */
-    --text-primary: #212121; /* Dark grey for primary text */
-    --text-secondary: #757575; /* Medium grey for secondary text */
-    --background-color: #E3F2FD; /* A very light blue for background */
-    --surface-color: #FFFFFF; /* White for surfaces like cards */
-    --accent-color: #FFC107; /* A contrasting accent color (amber) */
-}
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Code:ital,wght@0,300..800;1,300..800&display=swap&family=Bitcount+Prop+Single:wght@100..900&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap,&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 
 /* ===== BASE STYLES ===== */
 html, body {
@@ -84,13 +69,13 @@ main {
     user-select: none;
 }
 
-.button-style:hover {
+.button-style:hover, #create-item:hover {
     background-color: var(--primary-dark);
     border-radius: 10px;
     cursor: pointer;
 }
 
-.button-style:active {
+.button-style:active, #create-item:active {
     background-color: var(--primary-darkest);
     border-radius: 10px;
 }
@@ -230,6 +215,16 @@ main {
     text-align: center;
     gap: 5px;
     transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+    user-select: none;
+    pointer-events: none;
+    cursor: default;
+}
+
+/* Enable pointer events only when dragging is active */
+#shortcuts-area.dragging .action-button,
+.action-button.dragging {
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .action-icon {
@@ -240,6 +235,8 @@ main {
 .action-button.dragover {
     color: #ffffff;
     background-color: var(--primary-color);
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 /* ===== GALLERY STYLES ===== */
@@ -276,6 +273,8 @@ main {
     overflow: hidden;
     user-select: none;
     transition: transform 0.2s ease-in-out, opacity 0.3s ease, visibility 0s;
+    padding: 0;
+    border: none;
 }
 
 .shortcut-circle:hover {
@@ -317,8 +316,8 @@ main {
     animation: fadeInScale 0.5s ease forwards;
 }
 
-/* Time Widget Specific */
-.time-container {
+/* Shared Widget Styles */
+.time-container, .quote-container {
     cursor: pointer;
     position: relative;
     overflow: hidden;
@@ -335,20 +334,23 @@ main {
     box-sizing: border-box;
     min-width: 0;
     flex-shrink: 0;
+    width: 95%;
+    aspect-ratio: 5 / 4;
 }
 
-.time-container:hover, .time-container-preview:hover {
+.time-container:hover, .time-container-preview:hover, .quote-container:hover {
     transform: translateY(2px);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0);
 }
 
-.time-container.returning {
+.time-container.returning, .quote-container.returning {
     animation: fadeInScale 0.5s ease forwards;
 }
 
-#current-time-text, #current-time-text-preview {
+/* Time Widget Specific */
+.current-time-text, .time-preview-text {
     color: #ffffff;
-    font-size: 45px;
+    font-size: 3em;
     font-weight: normal;
     font-family: 'Google Sans';
     text-align: center;
@@ -372,25 +374,47 @@ main {
     min-width: 0;
     flex-shrink: 0;
     width: 100%;
+    max-width: 200px;
+    aspect-ratio: 5 / 4;
+}
+
+/* Quote Widget Specififc */
+.quote-text {
+    color: #ffffff;
 }
 
 /* ===== TAB BRIEF CONTAINER ===== */
 .tabbrief-container {
+    align-self: center;
+    justify-self: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     padding: 10px;
+    gap: 10px;
     background-color: var(--primary-light);
-    margin: 10px;
+    margin: 0 10px;
     border-radius: 25px;
     box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
     flex-shrink: 0;
+    height: 95%;
+    overflow: scroll;
 }
 
-/* ===== CREATE SHORTCUT BUTTON ===== */
-#create-shortcut {
+.tabbrief-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== CREATE ITEM BUTTON ===== */
+#create-item {
     position: fixed;
     right: 20px;
     bottom: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
 }
 
 /* ===== MODAL CONTAINERS ===== */
@@ -403,43 +427,62 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
+    background-color: transparent;
+    transition: background-color 0.2s ease-in-out;
+}
+
+#add-shortcut-container.grey-out,
+#add-widget-container.grey-out {
+    background-color: rgba(0, 0, 0, 0.5);
+    pointer-events: all;
 }
 
 /* ===== SHARED PANEL STYLES ===== */
 .add-shortcut-panel,
-.add-widget-panel {
+.add-widget-panel,
+.edit-widget-panel {
     pointer-events: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    background-color: var(--primary-light);
+    background-color: var(--background-color);
     border-radius: 25px;
     padding: 20px;
     opacity: 0;
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
     transition: opacity 0.2s ease-in-out;
-    width: fit-content;
+    width: 50%;
+    height: 75%;
     min-width: 300px;
 }
 
+.add-widget-panel {
+    display: grid !important;
+    grid-template-columns: 1fr 3fr 1fr !important;
+    grid-template-rows: 1fr !important;
+    gap: 10px !important;
+}
+
 .add-shortcut-panel.fade-in,
-.add-widget-panel.fade-in {
+.add-widget-panel.fade-in,
+.edit-widget-panel.fade-in {
     opacity: 1;
 }
 
 .add-shortcut-panel.fade-out,
-.add-widget-panel.fade-out {
+.add-widget-panel.fade-out,
+.edit-widget-panel.fade-out {
     opacity: 0;
 }
 
 /* ===== SHARED FORM STYLES ===== */
 #add-shortcut-form,
-#add-widget-form,
-#edit-widget-form {
+.add-widget-form,
+.edit-widget-form {
     display: flex;
-    gap: 5px;
+    gap: 10px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -700,5 +743,491 @@ label[for] {
     display: flex;
     align-items: center;
     justify-content: middle;
+    gap: 10px;
+}
+
+/* The switch container */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px; /* Keep current width */
+  height: 26px; /* Keep current height for the track */
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider (track) */
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc; /* Off state track color */
+    transition: 0.4s;
+}
+
+/* The slider (thumb/handle) */
+.slider:before {
+    position: absolute;
+    content: "";
+    /*
+    * Calculation for thumb size and position for 3px padding on all sides:
+    * Track Height: 26px
+    * Thumb Height/Width: 26px - 3px (top padding) - 3px (bottom padding) = 20px
+    * Initial Left/Bottom: 3px
+    */
+    height: 20px; /* ADJUSTED: Thumb height (26 - 3 - 3 = 20px) */
+    width: 20px; /* ADJUSTED: Thumb width to keep it round */
+    left: 3px; /* ADJUSTED: Initial position from left (3px padding) */
+    bottom: 3px; /* ADJUSTED: Initial position from bottom (3px padding) */
+    background-color: white; /* Thumb color */
+    -webkit-transition: 0.4s;
+    transition: 0.4s;
+}
+
+/* When the checkbox is checked, change background color of the track */
+input:checked + .slider {
+    background-color: var(--primary-color);
+}
+
+/* When the checkbox is checked, move the thumb to the right */
+input:checked + .slider:before {
+    /*
+    * Calculation for translateX for symmetrical 3px padding:
+    * Switch Width: 50px
+    * Thumb Width: 20px
+    * Initial Left Padding: 3px
+    * Desired Right Padding: 3px
+    * TranslateX = Switch Width - Thumb Width - Initial Left Padding - Desired Right Padding
+    * TranslateX = 50 - 20 - 3 - 3 = 24px
+    */
+    transform: translateX(24px);
+}
+
+/* Rounded sliders (optional) */
+.slider.round {
+    border-radius: 13px; /* Half of height (26px / 2 = 13px) */
+}
+
+.slider.round:before {
+    border-radius: 50%; /* Keeps thumb perfectly round */
+}
+
+/* Layout for the container of the custom switch to align with text */
+.switch-container {
+    display: flex;
+    align-items: center; /* Vertically centers the items */
+    gap: 10px; /* Adds space between the h2 and the switch */
+}
+
+/* Add some padding for the H2 inside the container */
+.switch-container h2 {
+    margin: 0; /* Remove default margin from H2 to align better */
+}
+
+/* Vibration animation for shortcuts during rearrangement */
+@keyframes vibrate {
+    0% { transform: translate(0); }
+    10% { transform: translate(-1px, -1px); }
+    20% { transform: translate(1px, -1px); }
+    30% { transform: translate(-1px, 1px); }
+    40% { transform: translate(1px, 1px); }
+    50% { transform: translate(-1px, -1px); }
+    60% { transform: translate(1px, -1px); }
+    70% { transform: translate(-1px, 1px); }
+    80% { transform: translate(1px, 1px); }
+    90% { transform: translate(-1px, -1px); }
+    100% { transform: translate(0); }
+}
+
+@keyframes vibrateIntense {
+    0% { transform: translate(0) scale(1); }
+    10% { transform: translate(-2px, -2px) scale(1.05); }
+    20% { transform: translate(2px, -2px) scale(0.95); }
+    30% { transform: translate(-2px, 2px) scale(1.05); }
+    40% { transform: translate(2px, 2px) scale(0.95); }
+    50% { transform: translate(-2px, -2px) scale(1.05); }
+    60% { transform: translate(2px, -2px) scale(0.95); }
+    70% { transform: translate(-2px, 2px) scale(1.05); }
+    80% { transform: translate(2px, 2px) scale(0.95); }
+    90% { transform: translate(-2px, -2px) scale(1.05); }
+    100% { transform: translate(0) scale(1); }
+}
+
+/* Classes for shortcut rearrangement states */
+.shortcut-container.hover-target {
+    animation: vibrate 0.3s infinite;
+    position: relative;
+    z-index: 10;
+}
+
+.shortcut-container.hover-target-ready {
+    animation: vibrateIntense 0.2s infinite;
+    position: relative;
+    z-index: 10;
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-radius: 8px;
+}
+
+.shortcut-container.rearrange-preview {
+    opacity: 0.7;
+    transform: scale(0.95);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.shortcut-container.insertion-point::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 80%;
+    background: var(--primary-color);
+    border-radius: 2px;
+    animation: insertionBlink 0.8s infinite;
+}
+
+@keyframes insertionBlink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
+/* Smooth transition for shortcut position changes */
+.shortcut-container.position-transitioning {
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Visual feedback for valid drop zones during rearrangement */
+.shortcut-gallery.rearrange-mode {
+    background: rgba(var(--primary-color-rgb), 0.05);
+    border: 2px dashed var(--primary-color);
+    border-radius: 12px;
+}
+
+/* Prevent interference with existing drag states */
+.shortcut-container.hover-target.dragging-source,
+.shortcut-container.hover-target-ready.dragging-source {
+    animation: none;
+    background: none;
+}
+
+/* Dropdown menu styles */
+
+.dropdown-menu {
+    height: fit-content;
+    width: 50px;
+    box-sizing: border-box;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--primary-light);
+    color: #ffffff;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    border-radius: 25px;
+    gap: 10px;
+    opacity: 0;
+    transition: bottom 0.3s ease, opacity 0.3s ease;
+}
+
+.dropdown-menu.slide-in {
+    bottom: 80px;
+    opacity: 1;
+}
+
+#create-shortcut, #create-widget {
+    background-color: var(--primary-color);
+}
+
+#create-item-icon {
+    transition: transform 0.3s ease;
+}
+
+#create-item-icon.dropdown-open {
+    transform: rotate(45deg);
+}
+
+/* Widget Carousel Styles */
+.widget-carousel-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px 0;
+    gap: 15px;
+}
+
+.widget-carousel {
+    display: flex;
+    width: 300px;
+    height: 200px;
+    overflow: hidden;
+    border-radius: 12px;
+    cursor: grab;
+    transition: transform 0.3s ease;
+    user-select: none;
+}
+
+.widget-carousel:active {
+    cursor: grabbing;
+}
+
+.widget-option {
+    flex: 0 0 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--secondary-bg-color, #f5f5f5);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.widget-option.active {
+    border-color: var(--primary-color, #4285f4);
+    background: var(--primary-bg-color, #ffffff);
+    box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2);
+}
+
+.widget-option img {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    margin-bottom: 10px;
+    border-radius: 8px;
+}
+
+.widget-option h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-color, #333333);
+}
+
+.widget-option.active h3 {
+    color: var(--primary-color, #4285f4);
+    font-weight: 600;
+}
+
+/* Carousel Navigation Buttons */
+.carousel-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: var(--primary-color, #4285f4);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3);
+}
+
+.carousel-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(66, 133, 244, 0.4);
+}
+
+.carousel-btn:active {
+    transform: scale(0.95);
+}
+
+.carousel-btn .material-symbols-outlined {
+    font-size: 24px;
+}
+
+/* Carousel Indicators */
+.carousel-indicators {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 15px 0;
+}
+
+.indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-color, #e0e0e0);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.indicator.active {
+    background: var(--primary-color, #4285f4);
+    transform: scale(1.3);
+}
+
+.indicator:hover {
+    background: var(--primary-color, #4285f4);
+    opacity: 0.7;
+}
+
+/* Create Widget Button */
+.create-selected-widget {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    margin-top: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.create-selected-widget .material-symbols-outlined {
+    font-size: 20px;
+}
+
+/* Responsive Design */
+@media (max-width: 480px) {
+    .widget-carousel-container {
+        gap: 10px;
+    }
+    
+    .widget-carousel {
+        width: 250px;
+        height: 180px;
+    }
+    
+    .carousel-btn {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .carousel-btn .material-symbols-outlined {
+        font-size: 20px;
+    }
+    
+    .widget-option {
+        padding: 15px;
+    }
+    
+    .widget-option img {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .widget-option h3 {
+        font-size: 14px;
+    }
+}
+
+/* Touch/Drag Visual Feedback */
+.widget-carousel.dragging {
+    transition: none;
+}
+
+/* Accessibility */
+.carousel-btn:focus,
+.indicator:focus,
+.widget-option:focus {
+    outline: 2px solid var(--primary-color, #4285f4);
+    outline-offset: 2px;
+}
+
+.add-widget-carousel {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.nav-arrow-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    justify-self: center;
+    width: 100%;
+    height: 100%;
+}
+
+.create-widget-main-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    justify-self: center;
+    width: 100%;
+    height: 100%;
+}
+
+.widget-carousel-image {
+    cursor: pointer;
+    aspect-ratio: 5 / 4;
+    width: 100%;
+}
+
+.widget-carousel-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    gap: 10px;
+}
+
+.navigation-indicator-div {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
     gap: 5px;
+    width: 100%;
+    height: fit-content;
+}
+
+.widget-indicator-circle {
+    cursor: pointer;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background-color: var(--light-background-color);
+    border: none;
+    padding: 0;
+}
+
+.image-wrapper-button {
+    border: none;
+    overflow: hidden;
+    background-color: transparent;
+    cursor: pointer;
+    aspect-ratio: 5 / 4;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+#edit-widget-inner-div {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    border-radius: 25px;
+    align-self: center;
+    justify-self: center;
 }
